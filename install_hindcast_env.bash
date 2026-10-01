@@ -24,10 +24,12 @@ export CONDA_BASE="${CONDA_PREFIX_DIR}"
 YML="${HINDCAST_YML:-${DEPS_ROOT}/hindcast.yml}"
 ENV_NAME="${HINDCAST_ENV_NAME:-hindcast}"
 
-# Shared on-disk cache on scratch (readable by teammates; NOT under $HOME)
-CACHE_DIR="${CACHE_DIR:-/scratch/cawohdcst_ft2/inacawo-deps-cache}"
+# Shared cache (teammates, a+rX): only for --offline / maintainer prefetch+seed
+SHARED_CACHE_DIR="${SHARED_CACHE_DIR:-/scratch/cawohdcst_ft2/inacawo-deps-cache}"
+# Per-user private cache (online installs — never write shared ft2 cache)
+PRIVATE_CACHE_DIR="${PRIVATE_CACHE_DIR:-${SCRATCH:-/scratch/${USER}}/inacawo-deps-cache}"
 # Shared hindcast env (default for --offline; no per-user copy)
-DEFAULT_SHARED_ENV="${DEFAULT_SHARED_ENV:-${CACHE_DIR}/envs/hindcast}"
+DEFAULT_SHARED_ENV="${DEFAULT_SHARED_ENV:-${SHARED_CACHE_DIR}/envs/hindcast}"
 # Back-compat alias used by older docs/flags
 DEFAULT_CLONE_SRC="${DEFAULT_CLONE_SRC:-${DEFAULT_SHARED_ENV}}"
 PREFIX_FILE="${DEPS_ROOT}/hindcast_env.prefix"
@@ -37,6 +39,11 @@ OFFLINE=0
 PREFETCH_ONLY=0
 CLONE_SRC=""
 SEED_PKGS_FROM=""
+CACHE_DIR_SET=0
+# Optional: env CACHE_DIR=... or --cache-dir overrides selection below
+if [[ -n "${CACHE_DIR:-}" ]]; then
+  CACHE_DIR_SET=1
+fi
 
 usage() {
   cat <<EOF
@@ -44,31 +51,34 @@ Usage: $0 [options]
 
 Options:
   --force-recreate         Remove and recreate a *private* local hindcast env
-  --offline, --local       No channel downloads; use shared scratch env (default)
+  --offline, --local       No channel downloads; use shared scratch env
   --from-clone PATH        Optional: rsync-copy PATH into private local env
-  --seed-pkgs-from PATH    Copy/rsync conda pkgs dir into cache (for offline yaml create)
-  --cache-dir DIR          Cache root (default: ${CACHE_DIR})
-  --prefetch-miniforge     Download Miniforge installer into cache, then exit
+  --seed-pkgs-from PATH    Copy/rsync conda pkgs into shared/cache-dir (maintainer)
+  --cache-dir DIR          Override cache root (default: private online, shared offline)
+  --prefetch-miniforge     Download Miniforge installer into shared/cache-dir, then exit
   -h, --help               Show this help
 
-Cache layout (all under scratch — group-readable, not \$HOME):
-  \$CACHE_DIR/miniforge/Miniforge3-*.sh
-  \$CACHE_DIR/conda-pkgs/
-  \$CACHE_DIR/envs/hindcast/     # SHARED env used by --offline (preferred)
+Online (no --offline): private cache under /scratch/\$USER/inacawo-deps-cache
+  — does NOT use ${SHARED_CACHE_DIR}
+
+Offline / maintainer:
+  ${SHARED_CACHE_DIR}/miniforge/
+  ${SHARED_CACHE_DIR}/conda-pkgs/
+  ${SHARED_CACHE_DIR}/envs/hindcast/   # SHARED env (--offline)
 
 Examples:
-  # Online: private env under \$HOME/inacawo-deps/miniforge3/envs/hindcast
+  # Online: private env + private pkgs cache
   bash $0
 
-  # Offline / flaky network: point at shared scratch env (no 4G copy)
+  # Offline / flaky network: shared scratch env (no 4G copy)
   bash $0 --offline
 
   # Optional private offline copy (slow; only if you need a writable env)
   bash $0 --offline --from-clone ${DEFAULT_SHARED_ENV}
 
   # Maintainer: publish/update the shared env (run as cache owner)
-  #   conda create -p \$CACHE_DIR/envs/hindcast --clone \$HOME/opt/miniforge3/envs/hindcast -y
-  #   chmod -R a+rX \$CACHE_DIR
+  #   conda create -p ${SHARED_CACHE_DIR}/envs/hindcast --clone \$HOME/opt/miniforge3/envs/hindcast -y
+  #   chmod -R a+rX ${SHARED_CACHE_DIR}
 
   bash $0 --prefetch-miniforge
 EOF
@@ -91,6 +101,7 @@ while [[ $# -gt 0 ]]; do
       shift
       [[ $# -gt 0 ]] || { echo "ERROR: --cache-dir needs a path" >&2; exit 1; }
       CACHE_DIR="$1"
+      CACHE_DIR_SET=1
       ;;
     --prefetch-miniforge) PREFETCH_ONLY=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -103,10 +114,20 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# Online → private user cache. Offline / prefetch / seed → shared (unless --cache-dir).
+if [[ "${CACHE_DIR_SET}" -eq 0 ]]; then
+  if [[ "${OFFLINE}" -eq 1 || "${PREFETCH_ONLY}" -eq 1 || -n "${SEED_PKGS_FROM}" ]]; then
+    CACHE_DIR="${SHARED_CACHE_DIR}"
+  else
+    CACHE_DIR="${PRIVATE_CACHE_DIR}"
+  fi
+fi
+
 CACHE_MINIFORGE="${CACHE_DIR}/miniforge"
 CACHE_PKGS="${CACHE_DIR}/conda-pkgs"
 mkdir -p "${CACHE_MINIFORGE}" "${CACHE_PKGS}"
 export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${CACHE_PKGS}}"
+mkdir -p "${CONDA_PKGS_DIRS}"
 
 # ---- timing helpers ----
 now_s() { date +%s; }
@@ -200,11 +221,18 @@ fetch_miniforge_installer() {
   # Human-readable status goes to stderr.
   local installer="$1"
   local dest="${CACHE_MINIFORGE}/${installer}"
+  local shared_dest="${SHARED_CACHE_DIR}/miniforge/${installer}"
   local url="https://github.com/conda-forge/miniforge/releases/latest/download/${installer}"
 
   if [[ -f "${dest}" ]]; then
     echo "    using cached installer: ${dest}" >&2
     printf '%s\n' "${dest}"
+    return 0
+  fi
+  # Online private cache: reuse shared installer if present (read-only OK)
+  if [[ "${dest}" != "${shared_dest}" && -f "${shared_dest}" ]]; then
+    echo "    using shared installer: ${shared_dest}" >&2
+    printf '%s\n' "${shared_dest}"
     return 0
   fi
 
@@ -217,6 +245,7 @@ fetch_miniforge_installer() {
     echo "ERROR: curl is required to download Miniforge (or place installer in ${CACHE_MINIFORGE}/)" >&2
     exit 1
   fi
+  mkdir -p "$(dirname "${dest}")"
   echo "    downloading ${url}" >&2
   echo "    → ${dest}" >&2
   curl -fsSL -o "${dest}.partial" "${url}"
@@ -255,7 +284,11 @@ fi
 
 echo "==> Cache dir: ${CACHE_DIR}"
 echo "    CONDA_PKGS_DIRS=${CONDA_PKGS_DIRS}"
-[[ "${OFFLINE}" -eq 1 ]] && echo "    mode: OFFLINE (no network downloads)"
+if [[ "${OFFLINE}" -eq 1 ]]; then
+  echo "    mode: OFFLINE (shared env / no network downloads)"
+else
+  echo "    mode: ONLINE (private cache; shared ${SHARED_CACHE_DIR} not used for pkgs)"
+fi
 
 ensure_lo_dirs
 
@@ -498,6 +531,7 @@ echo "      total     : $(fmt_elapsed "${T_TOTAL}")"
 echo "    CONDA_BASE=${CONDA_BASE}"
 echo "    HINDCAST_ENV_PREFIX=${ENV_PREFIX}"
 echo "    HINDCAST_SHARED_ENV=${DEFAULT_SHARED_ENV}"
+echo "    SHARED_CACHE_DIR=${SHARED_CACHE_DIR}"
 echo "    CACHE_DIR=${CACHE_DIR}"
 echo "    LO_DATA=${LO_DATA}"
 echo "    LO_OUTPUT=${LO_OUTPUT}"

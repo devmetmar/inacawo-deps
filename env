@@ -22,6 +22,9 @@ if [[ ! -x "${CONDA_BASE}/bin/conda" && -x "${HOME}/opt/miniforge3/bin/conda" ]]
 fi
 export HINDCAST_YML="${DEPS_BASE}/hindcast.yml"
 export HINDCAST_ENV_NAME="${HINDCAST_ENV_NAME:-hindcast}"
+# Always use envs under this Miniforge (ignore ~/.condarc envs_dirs like ~/envs)
+export CONDA_ENVS_DIRS="${CONDA_BASE}/envs"
+export HINDCAST_ENV_PREFIX="${CONDA_ENVS_DIRS}/${HINDCAST_ENV_NAME}"
 #
 # -----------------
 # Shared hindcast base (same value for deps install + iht workflow)

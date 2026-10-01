@@ -40,7 +40,9 @@ The wrapper will:
 2. Install **Miniforge3** into `$HOME/inacawo-deps/miniforge3` if `conda` is not already there
 3. Create (or update) the **`hindcast`** env from `hindcast.yml` (includes editable `./LO/lo_tools`)
 
-Shared with iht: `CAWO_HINDCAST_BASE`, `CAWO_INPUT`, `LO` / `LO_USER` / `LO_DATA` / `LO_OUTPUT` / `LO_ROMS`, `CONDA_BASE`, `LIBDEP`, `COAWST_ENV` (defined here only — `inacawo-iht/env` sources this file and must not redefine them).
+Shared with iht: `CAWO_HINDCAST_BASE`, `CAWO_INPUT`, `LO` / `LO_USER` / `LO_DATA` / `LO_OUTPUT` / `LO_ROMS`, `CONDA_BASE`, `CONDA_ENVS_DIRS` / `HINDCAST_ENV_PREFIX`, `LIBDEP`, `COAWST_ENV` (defined here only — `inacawo-iht/env` sources this file and must not redefine them).
+
+The `hindcast` env is always created at **`$CONDA_BASE/envs/hindcast`** (not `~/envs`), even if `~/.condarc` sets a different `envs_dirs`.
 
 Options:
 

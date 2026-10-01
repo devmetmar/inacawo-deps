@@ -243,6 +243,13 @@ fi
 # shellcheck disable=SC1091
 source "${CONDA_PREFIX_DIR}/etc/profile.d/conda.sh"
 
+# Force envs into this Miniforge (do not use ~/envs from ~/.condarc)
+export CONDA_ENVS_DIRS="${CONDA_PREFIX_DIR}/envs"
+ENV_PREFIX="${CONDA_ENVS_DIRS}/${ENV_NAME}"
+mkdir -p "${CONDA_ENVS_DIRS}"
+echo "    CONDA_ENVS_DIRS=${CONDA_ENVS_DIRS}"
+echo "    env prefix: ${ENV_PREFIX}"
+
 if command -v mamba >/dev/null 2>&1; then
   CREATE=(mamba env create)
   UPDATE=(mamba env update)
@@ -262,22 +269,22 @@ fi
 cd "${DEPS_ROOT}"
 
 t0="$(now_s)"
-if conda env list | awk '{print $1}' | grep -qx "${ENV_NAME}"; then
+if [[ -d "${ENV_PREFIX}/conda-meta" ]]; then
   if [[ "${FORCE_RECREATE}" -eq 1 ]]; then
-    echo "==> Removing existing env '${ENV_NAME}' (--force-recreate)"
-    "${REMOVE[@]}" -n "${ENV_NAME}" -y
-    echo "==> Creating env '${ENV_NAME}' from hindcast.yml"
-    "${CREATE[@]}" -f "${YML}"
+    echo "==> Removing existing env at ${ENV_PREFIX} (--force-recreate)"
+    "${REMOVE[@]}" -p "${ENV_PREFIX}" -y
+    echo "==> Creating env '${ENV_NAME}' at ${ENV_PREFIX}"
+    "${CREATE[@]}" -p "${ENV_PREFIX}" -f "${YML}"
     ENV_ACTION="recreated"
   else
-    echo "==> Env '${ENV_NAME}' already exists — updating from hindcast.yml"
+    echo "==> Env already exists at ${ENV_PREFIX} — updating from hindcast.yml"
     echo "    (use --force-recreate for a clean rebuild)"
-    "${UPDATE[@]}" -n "${ENV_NAME}" -f "${YML}" --prune
+    "${UPDATE[@]}" -p "${ENV_PREFIX}" -f "${YML}" --prune
     ENV_ACTION="updated"
   fi
 else
-  echo "==> Creating env '${ENV_NAME}' from hindcast.yml"
-  "${CREATE[@]}" -f "${YML}"
+  echo "==> Creating env '${ENV_NAME}' at ${ENV_PREFIX}"
+  "${CREATE[@]}" -p "${ENV_PREFIX}" -f "${YML}"
   ENV_ACTION="created"
 fi
 t1="$(now_s)"
@@ -293,6 +300,7 @@ echo "      Miniforge : ${MINIFORGE_ACTION}  $(fmt_elapsed "${T_MINIFORGE}")"
 echo "      hindcast  : ${ENV_ACTION}  $(fmt_elapsed "${T_ENV}")"
 echo "      total     : $(fmt_elapsed "${T_TOTAL}")"
 echo "    CONDA_BASE=${CONDA_BASE}"
+echo "    HINDCAST_ENV_PREFIX=${ENV_PREFIX}"
 echo "    CACHE_DIR=${CACHE_DIR}"
 echo "    LO_DATA=${LO_DATA}"
 echo "    LO_OUTPUT=${LO_OUTPUT}"
@@ -300,6 +308,6 @@ echo "    LO_ROMS=${LO_ROMS}"
 echo "    CAWO_HINDCAST_BASE=${CAWO_HINDCAST_BASE}"
 echo "    Activate with:"
 echo "      source ${CONDA_BASE}/etc/profile.d/conda.sh"
-echo "      conda activate ${ENV_NAME}"
+echo "      conda activate ${ENV_PREFIX}"
 echo "    Or from inacawo-iht:"
 echo "      source \$HOME/inacawo-iht/setup_env.bash"

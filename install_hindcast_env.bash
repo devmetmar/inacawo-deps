@@ -59,12 +59,12 @@ ensure_lo_dirs() {
 
   # Scratch LO layout + shared hindcast base
   for d in \
-    "${SCRATCH_PREPROCESS}" \
+    "${CAWO_INPUT}" \
     "${LO_DATA}" \
     "${LO_DATA}/grids" \
     "${LO_OUTPUT}" \
     "${LO_ROMS}" \
-    "${SCRATCH_PREPROCESS}/roms_forcing" \
+    "${CAWO_INPUT}/roms_forcing" \
     "${CAWO_HINDCAST_BASE}"
   do
     if [[ ! -d "${d}" ]]; then
@@ -86,7 +86,7 @@ ensure_lo_dirs() {
     printf '      %s\n' "${created[@]}"
     echo "    layout:"
   fi
-  printf '      %s\n' "${LO_DATA}" "${LO_DATA}/grids" "${LO_OUTPUT}" "${LO_ROMS}" "${SCRATCH_PREPROCESS}/roms_forcing" "${CAWO_HINDCAST_BASE}"
+  printf '      %s\n' "${LO_DATA}" "${LO_DATA}/grids" "${LO_OUTPUT}" "${LO_ROMS}" "${CAWO_INPUT}/roms_forcing" "${CAWO_HINDCAST_BASE}"
   if [[ -d "${LO_USER}" ]]; then
     printf '      %s\n' "${LO_USER}"
   else

@@ -19,7 +19,7 @@ $HOME/inacawo-iht/preprocess/
   get_era5/ get_glorys/ get_roms_icbc/ get_swan_bry/ wps_run/
 
 /scratch/$USER/inacawo-iht/          # CAWO_HINDCAST_BASE
-  preprocess/                   # SCRATCH_PREPROCESS
+  cawo_input/                   # CAWO_INPUT
     LO_data/ LO_output/ LO_roms/
     roms_forcing/ era5/ mercator/ wps_run/ swan_bcs/ …
   cawo_hindcast_run/ cawo_output/ cawo_post/
@@ -36,11 +36,11 @@ bash install_hindcast_env.bash
 
 The wrapper will:
 
-1. Ensure user-relative LO dirs under `/scratch/$USER/inacawo-iht/preprocess/` (`LO_data`, `LO_data/grids`, `LO_output`, `LO_roms`) and `LO_user` if `inacawo-iht` is already cloned (paths from `env`)
+1. Ensure user-relative LO dirs under `/scratch/$USER/inacawo-iht/cawo_input/` (`LO_data`, `LO_data/grids`, `LO_output`, `LO_roms`) and `LO_user` if `inacawo-iht` is already cloned (paths from `env`)
 2. Install **Miniforge3** into `$HOME/inacawo-deps/miniforge3` if `conda` is not already there
 3. Create (or update) the **`hindcast`** env from `hindcast.yml` (includes editable `./LO/lo_tools`)
 
-Shared with iht: `CAWO_HINDCAST_BASE`, `LO` / `LO_USER` / `LO_DATA` / `LO_OUTPUT` / `LO_ROMS`, `CONDA_BASE`, `LIBDEP`, `COAWST_ENV` (defined here only — `inacawo-iht/env` sources this file and must not redefine them).
+Shared with iht: `CAWO_HINDCAST_BASE`, `CAWO_INPUT`, `LO` / `LO_USER` / `LO_DATA` / `LO_OUTPUT` / `LO_ROMS`, `CONDA_BASE`, `LIBDEP`, `COAWST_ENV` (defined here only — `inacawo-iht/env` sources this file and must not redefine them).
 
 Options:
 

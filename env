@@ -29,15 +29,15 @@ export HINDCAST_ENV_NAME="${HINDCAST_ENV_NAME:-hindcast}"
 export CAWO_HINDCAST_BASE="${SCRATCH}/inacawo-iht"
 #
 # -----------------
-# LiveOcean (code in deps; LO_user in iht; data/output on scratch)
-# Scratch mirrors home: $CAWO_HINDCAST_BASE/preprocess/
+# LiveOcean (code in deps; LO_user under iht home preprocess/; data on scratch)
+# Scratch I/O siblings: cawo_input / cawo_hindcast_run / cawo_output / cawo_post
 # -----------------
 export LO="${DEPS_BASE}/LO"
 export LO_USER="${HOME}/inacawo-iht/preprocess/LO_user"
-export SCRATCH_PREPROCESS="${CAWO_HINDCAST_BASE}/preprocess"
-export LO_DATA="${SCRATCH_PREPROCESS}/LO_data"
-export LO_OUTPUT="${SCRATCH_PREPROCESS}/LO_output"
-export LO_ROMS="${SCRATCH_PREPROCESS}/LO_roms"
+export CAWO_INPUT="${CAWO_HINDCAST_BASE}/cawo_input"
+export LO_DATA="${CAWO_INPUT}/LO_data"
+export LO_OUTPUT="${CAWO_INPUT}/LO_output"
+export LO_ROMS="${CAWO_INPUT}/LO_roms"
 #
 # ----------------
 # Compiled deps under apps/ + Intel/COAWST toolchain (separate file — do not

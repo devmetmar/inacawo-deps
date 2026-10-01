@@ -170,13 +170,15 @@ detect_installer() {
 }
 
 fetch_miniforge_installer() {
+  # Prints ONLY the installer path on stdout (captured by callers).
+  # Human-readable status goes to stderr.
   local installer="$1"
   local dest="${CACHE_MINIFORGE}/${installer}"
   local url="https://github.com/conda-forge/miniforge/releases/latest/download/${installer}"
 
   if [[ -f "${dest}" ]]; then
-    echo "    using cached installer: ${dest}"
-    echo "${dest}"
+    echo "    using cached installer: ${dest}" >&2
+    printf '%s\n' "${dest}"
     return 0
   fi
 
@@ -189,11 +191,11 @@ fetch_miniforge_installer() {
     echo "ERROR: curl is required to download Miniforge (or place installer in ${CACHE_MINIFORGE}/)" >&2
     exit 1
   fi
-  echo "    downloading ${url}"
-  echo "    → ${dest}"
+  echo "    downloading ${url}" >&2
+  echo "    → ${dest}" >&2
   curl -fsSL -o "${dest}.partial" "${url}"
   mv "${dest}.partial" "${dest}"
-  echo "${dest}"
+  printf '%s\n' "${dest}"
 }
 
 install_miniforge() {
@@ -202,6 +204,10 @@ install_miniforge() {
   t0="$(now_s)"
   echo "==> Installing Miniforge to ${CONDA_PREFIX_DIR}"
   path="$(fetch_miniforge_installer "${installer}")"
+  if [[ ! -f "${path}" ]]; then
+    echo "ERROR: Miniforge installer not found: '${path}'" >&2
+    exit 1
+  fi
   bash "${path}" -b -p "${CONDA_PREFIX_DIR}"
   t1="$(now_s)"
   T_MINIFORGE="$((t1 - t0))"

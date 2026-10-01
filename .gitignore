@@ -1,6 +1,9 @@
 # Apps tree is maintained separately for now
 /apps/
 
+# Local Miniforge install (created by install_hindcast_env.bash)
+/miniforge3/
+
 # Editor / OS junk
 .DS_Store
 *~

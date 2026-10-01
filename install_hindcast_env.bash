@@ -6,7 +6,10 @@
 #
 # Usage:
 #   bash $HOME/inacawo-deps/install_hindcast_env.bash
-#   bash install_hindcast_env.bash --force-recreate   # remove + recreate hindcast
+#   bash install_hindcast_env.bash --force-recreate
+#   bash install_hindcast_env.bash --offline              # no network; use local cache
+#   bash install_hindcast_env.bash --cache-dir /path      # override cache root
+#   bash install_hindcast_env.bash --prefetch-miniforge   # download installer only
 #
 set -euo pipefail
 
@@ -20,20 +23,77 @@ export CONDA_BASE="${CONDA_PREFIX_DIR}"
 YML="${HINDCAST_YML:-${DEPS_ROOT}/hindcast.yml}"
 ENV_NAME="${HINDCAST_ENV_NAME:-hindcast}"
 
+# Shared on-disk cache (Miniforge installer + conda pkgs) for offline / flaky network
+CACHE_DIR="${CACHE_DIR:-/scratch/cawohdcst_ft2/inacawo-deps-cache}"
+
 FORCE_RECREATE=0
-for arg in "$@"; do
-  case "$arg" in
+OFFLINE=0
+PREFETCH_ONLY=0
+
+usage() {
+  cat <<EOF
+Usage: $0 [options]
+
+Options:
+  --force-recreate       Remove and recreate the hindcast env
+  --offline, --local     No downloads; use installer + pkgs under --cache-dir
+  --cache-dir DIR        Cache root (default: ${CACHE_DIR})
+  --prefetch-miniforge   Download Miniforge installer into cache, then exit
+  -h, --help             Show this help
+
+Cache layout:
+  \$CACHE_DIR/miniforge/Miniforge3-*.sh
+  \$CACHE_DIR/conda-pkgs/          # shared CONDA_PKGS_DIRS (populated on online installs)
+
+Examples:
+  # Normal (uses cache if present, else downloads into cache)
+  bash $0
+
+  # Network down: after one successful online install (or manual copy into cache)
+  bash $0 --offline
+
+  # Seed installer only
+  bash $0 --prefetch-miniforge
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
     --force-recreate) FORCE_RECREATE=1 ;;
-    -h|--help)
-      echo "Usage: $0 [--force-recreate]"
-      exit 0
+    --offline|--local|--local-only) OFFLINE=1 ;;
+    --cache-dir)
+      shift
+      [[ $# -gt 0 ]] || { echo "ERROR: --cache-dir needs a path" >&2; exit 1; }
+      CACHE_DIR="$1"
       ;;
+    --prefetch-miniforge) PREFETCH_ONLY=1 ;;
+    -h|--help) usage; exit 0 ;;
     *)
-      echo "Unknown argument: $arg" >&2
+      echo "Unknown argument: $1" >&2
+      usage >&2
       exit 1
       ;;
   esac
+  shift
 done
+
+CACHE_MINIFORGE="${CACHE_DIR}/miniforge"
+CACHE_PKGS="${CACHE_DIR}/conda-pkgs"
+mkdir -p "${CACHE_MINIFORGE}" "${CACHE_PKGS}"
+export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${CACHE_PKGS}}"
+
+# ---- timing helpers ----
+now_s() { date +%s; }
+fmt_elapsed() {
+  local secs="$1"
+  printf '%dm%02ds' "$((secs / 60))" "$((secs % 60))"
+}
+
+T_START="$(now_s)"
+T_MINIFORGE=0
+T_ENV=0
+MINIFORGE_ACTION="skipped"
+ENV_ACTION="skipped"
 
 if [[ ! -f "${YML}" ]]; then
   echo "ERROR: missing ${YML}" >&2
@@ -57,7 +117,6 @@ ensure_lo_dirs() {
     mkdir -p "${SCRATCH}"
   fi
 
-  # Scratch LO layout + shared hindcast base
   for d in \
     "${CAWO_INPUT}" \
     "${LO_DATA}" \
@@ -73,7 +132,6 @@ ensure_lo_dirs() {
     fi
   done
 
-  # LO_user lives in iht (git-tracked); only mkdir if parent preprocess exists
   if [[ -d "$(dirname "${LO_USER}")" && ! -d "${LO_USER}" ]]; then
     mkdir -p "${LO_USER}"
     created+=("${LO_USER}")
@@ -111,28 +169,68 @@ detect_installer() {
   esac
 }
 
-install_miniforge() {
-  local installer url tmp
-  installer="$(detect_installer)"
-  url="https://github.com/conda-forge/miniforge/releases/latest/download/${installer}"
-  tmp="$(mktemp -d)"
-  echo "==> Installing Miniforge to ${CONDA_PREFIX_DIR}"
+fetch_miniforge_installer() {
+  local installer="$1"
+  local dest="${CACHE_MINIFORGE}/${installer}"
+  local url="https://github.com/conda-forge/miniforge/releases/latest/download/${installer}"
+
+  if [[ -f "${dest}" ]]; then
+    echo "    using cached installer: ${dest}"
+    echo "${dest}"
+    return 0
+  fi
+
+  if [[ "${OFFLINE}" -eq 1 ]]; then
+    echo "ERROR: --offline set but installer missing: ${dest}" >&2
+    echo "       Copy ${installer} into ${CACHE_MINIFORGE}/ or run without --offline once." >&2
+    exit 1
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "ERROR: curl is required to download Miniforge (or place installer in ${CACHE_MINIFORGE}/)" >&2
+    exit 1
+  fi
   echo "    downloading ${url}"
-  curl -fsSL -o "${tmp}/${installer}" "${url}"
-  bash "${tmp}/${installer}" -b -p "${CONDA_PREFIX_DIR}"
-  rm -rf "${tmp}"
-  echo "==> Miniforge installed"
+  echo "    → ${dest}"
+  curl -fsSL -o "${dest}.partial" "${url}"
+  mv "${dest}.partial" "${dest}"
+  echo "${dest}"
 }
+
+install_miniforge() {
+  local installer path t0 t1
+  installer="$(detect_installer)"
+  t0="$(now_s)"
+  echo "==> Installing Miniforge to ${CONDA_PREFIX_DIR}"
+  path="$(fetch_miniforge_installer "${installer}")"
+  bash "${path}" -b -p "${CONDA_PREFIX_DIR}"
+  t1="$(now_s)"
+  T_MINIFORGE="$((t1 - t0))"
+  MINIFORGE_ACTION="installed"
+  echo "==> Miniforge installed ($(fmt_elapsed "${T_MINIFORGE}"))"
+}
+
+# ---- optional: only seed cache ----
+if [[ "${PREFETCH_ONLY}" -eq 1 ]]; then
+  installer="$(detect_installer)"
+  echo "==> Prefetch Miniforge into ${CACHE_MINIFORGE}"
+  t0="$(now_s)"
+  fetch_miniforge_installer "${installer}" >/dev/null
+  t1="$(now_s)"
+  echo "==> Prefetch done ($(fmt_elapsed "$((t1 - t0))"))"
+  echo "    cache: ${CACHE_MINIFORGE}/${installer}"
+  exit 0
+fi
+
+echo "==> Cache dir: ${CACHE_DIR}"
+echo "    CONDA_PKGS_DIRS=${CONDA_PKGS_DIRS}"
+[[ "${OFFLINE}" -eq 1 ]] && echo "    mode: OFFLINE (no network downloads)"
 
 ensure_lo_dirs
 
 if [[ ! -x "${CONDA_PREFIX_DIR}/bin/conda" ]]; then
-  if ! command -v curl >/dev/null 2>&1; then
-    echo "ERROR: curl is required to download Miniforge" >&2
-    exit 1
-  fi
   install_miniforge
 else
+  MINIFORGE_ACTION="existing"
   echo "==> Found existing Miniforge at ${CONDA_PREFIX_DIR}"
 fi
 
@@ -149,28 +247,47 @@ else
   REMOVE=(conda env remove)
 fi
 
+if [[ "${OFFLINE}" -eq 1 ]]; then
+  CREATE+=(--offline)
+  UPDATE+=(--offline)
+fi
+
 # Editable -e ./LO/lo_tools must resolve relative to DEPS_ROOT
 cd "${DEPS_ROOT}"
 
+t0="$(now_s)"
 if conda env list | awk '{print $1}' | grep -qx "${ENV_NAME}"; then
   if [[ "${FORCE_RECREATE}" -eq 1 ]]; then
     echo "==> Removing existing env '${ENV_NAME}' (--force-recreate)"
     "${REMOVE[@]}" -n "${ENV_NAME}" -y
     echo "==> Creating env '${ENV_NAME}' from hindcast.yml"
     "${CREATE[@]}" -f "${YML}"
+    ENV_ACTION="recreated"
   else
     echo "==> Env '${ENV_NAME}' already exists — updating from hindcast.yml"
     echo "    (use --force-recreate for a clean rebuild)"
     "${UPDATE[@]}" -n "${ENV_NAME}" -f "${YML}" --prune
+    ENV_ACTION="updated"
   fi
 else
   echo "==> Creating env '${ENV_NAME}' from hindcast.yml"
   "${CREATE[@]}" -f "${YML}"
+  ENV_ACTION="created"
 fi
+t1="$(now_s)"
+T_ENV="$((t1 - t0))"
+echo "==> Env step done (${ENV_ACTION}, $(fmt_elapsed "${T_ENV}"))"
+
+T_TOTAL="$(( $(now_s) - T_START ))"
 
 echo
 echo "==> Done."
+echo "    timing:"
+echo "      Miniforge : ${MINIFORGE_ACTION}  $(fmt_elapsed "${T_MINIFORGE}")"
+echo "      hindcast  : ${ENV_ACTION}  $(fmt_elapsed "${T_ENV}")"
+echo "      total     : $(fmt_elapsed "${T_TOTAL}")"
 echo "    CONDA_BASE=${CONDA_BASE}"
+echo "    CACHE_DIR=${CACHE_DIR}"
 echo "    LO_DATA=${LO_DATA}"
 echo "    LO_OUTPUT=${LO_OUTPUT}"
 echo "    LO_ROMS=${LO_ROMS}"

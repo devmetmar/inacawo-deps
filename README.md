@@ -45,10 +45,42 @@ Shared with iht: `CAWO_HINDCAST_BASE`, `CAWO_INPUT`, `LO` / `LO_USER` / `LO_DATA
 Options:
 
 ```bash
-bash install_hindcast_env.bash --force-recreate   # delete + recreate hindcast
+bash install_hindcast_env.bash --force-recreate      # delete + recreate hindcast
+bash install_hindcast_env.bash --prefetch-miniforge  # download installer into cache only
+bash install_hindcast_env.bash --offline             # no network; use local cache
+bash install_hindcast_env.bash --cache-dir /path     # override cache root
 ```
 
-Requires `curl` for the Miniforge download. `miniforge3/` is gitignored (do not commit it).
+### Timing
+
+The wrapper prints elapsed time for **Miniforge**, **hindcast env**, and **total**.
+
+### Local / offline cache (flaky network)
+
+Default cache root: **`/scratch/cawohdcst_ft2/inacawo-deps-cache`**
+
+```
+$CACHE_DIR/
+  miniforge/Miniforge3-Linux-x86_64.sh   # installer (auto-downloaded, or copy by hand)
+  conda-pkgs/                            # shared CONDA_PKGS_DIRS
+```
+
+- Online runs download the Miniforge installer into the cache (retries reuse it) and store conda packages under `conda-pkgs/` so later installs (or other users pointing at the same cache) hit disk first.
+- If the network is down after a successful seed:
+
+```bash
+bash install_hindcast_env.bash --offline
+```
+
+- Manual seed of the installer (e.g. scp from another host):
+
+```bash
+mkdir -p /scratch/cawohdcst_ft2/inacawo-deps-cache/miniforge
+# place Miniforge3-Linux-x86_64.sh there, then:
+bash install_hindcast_env.bash --offline
+```
+
+Requires `curl` for the first Miniforge download (unless the installer is already cached). `miniforge3/` under the repo is gitignored (do not commit it).
 
 Then from the workflow repo:
 

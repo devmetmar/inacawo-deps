@@ -1,5 +1,8 @@
 #!/bin/bash
-# Install Miniforge into inacawo-deps (if missing) and create the hindcast conda env.
+# Install Miniforge into inacawo-deps (if missing), create required LO dirs for
+# the current user, then create/update the hindcast conda env.
+#
+# Paths come from env (SST): source $DEPS_ROOT/env
 #
 # Usage:
 #   bash $HOME/inacawo-deps/install_hindcast_env.bash
@@ -8,9 +11,14 @@
 set -euo pipefail
 
 DEPS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${DEPS_ROOT}/env"
+
+# Ensure CONDA_BASE targets this deps tree for install (ignore legacy fallback)
 CONDA_PREFIX_DIR="${DEPS_ROOT}/miniforge3"
-YML="${DEPS_ROOT}/hindcast.yml"
-ENV_NAME="hindcast"
+export CONDA_BASE="${CONDA_PREFIX_DIR}"
+YML="${HINDCAST_YML:-${DEPS_ROOT}/hindcast.yml}"
+ENV_NAME="${HINDCAST_ENV_NAME:-hindcast}"
 
 FORCE_RECREATE=0
 for arg in "$@"; do
@@ -31,10 +39,60 @@ if [[ ! -f "${YML}" ]]; then
   echo "ERROR: missing ${YML}" >&2
   exit 1
 fi
-if [[ ! -d "${DEPS_ROOT}/LO/lo_tools" ]]; then
-  echo "ERROR: missing ${DEPS_ROOT}/LO/lo_tools (needed for editable install)" >&2
+if [[ ! -d "${LO}/lo_tools" ]]; then
+  echo "ERROR: missing ${LO}/lo_tools (needed for editable install)" >&2
   exit 1
 fi
+
+ensure_lo_dirs() {
+  local d created=()
+  echo "==> Ensuring LO directories for user '${USER_NAME}'"
+
+  if [[ ! -d "/scratch" ]]; then
+    echo "ERROR: /scratch does not exist on this host" >&2
+    exit 1
+  fi
+  if [[ ! -d "${SCRATCH}" ]]; then
+    echo "    creating ${SCRATCH}"
+    mkdir -p "${SCRATCH}"
+  fi
+
+  # Scratch LO layout + shared hindcast base
+  for d in \
+    "${SCRATCH_PREPROCESS}" \
+    "${LO_DATA}" \
+    "${LO_DATA}/grids" \
+    "${LO_OUTPUT}" \
+    "${LO_ROMS}" \
+    "${SCRATCH_PREPROCESS}/roms_forcing" \
+    "${CAWO_HINDCAST_BASE}"
+  do
+    if [[ ! -d "${d}" ]]; then
+      mkdir -p "${d}"
+      created+=("${d}")
+    fi
+  done
+
+  # LO_user lives in iht (git-tracked); only mkdir if parent preprocess exists
+  if [[ -d "$(dirname "${LO_USER}")" && ! -d "${LO_USER}" ]]; then
+    mkdir -p "${LO_USER}"
+    created+=("${LO_USER}")
+  fi
+
+  if [[ ${#created[@]} -eq 0 ]]; then
+    echo "    already present:"
+  else
+    echo "    created:"
+    printf '      %s\n' "${created[@]}"
+    echo "    layout:"
+  fi
+  printf '      %s\n' "${LO_DATA}" "${LO_DATA}/grids" "${LO_OUTPUT}" "${LO_ROMS}" "${SCRATCH_PREPROCESS}/roms_forcing" "${CAWO_HINDCAST_BASE}"
+  if [[ -d "${LO_USER}" ]]; then
+    printf '      %s\n' "${LO_USER}"
+  else
+    echo "      (skip LO_user — clone inacawo-iht first; expected at ${LO_USER})"
+  fi
+}
 
 detect_installer() {
   local uname_s uname_m
@@ -65,6 +123,8 @@ install_miniforge() {
   rm -rf "${tmp}"
   echo "==> Miniforge installed"
 }
+
+ensure_lo_dirs
 
 if [[ ! -x "${CONDA_PREFIX_DIR}/bin/conda" ]]; then
   if ! command -v curl >/dev/null 2>&1; then
@@ -110,9 +170,13 @@ fi
 
 echo
 echo "==> Done."
-echo "    CONDA_BASE=${CONDA_PREFIX_DIR}"
+echo "    CONDA_BASE=${CONDA_BASE}"
+echo "    LO_DATA=${LO_DATA}"
+echo "    LO_OUTPUT=${LO_OUTPUT}"
+echo "    LO_ROMS=${LO_ROMS}"
+echo "    CAWO_HINDCAST_BASE=${CAWO_HINDCAST_BASE}"
 echo "    Activate with:"
-echo "      source ${CONDA_PREFIX_DIR}/etc/profile.d/conda.sh"
+echo "      source ${CONDA_BASE}/etc/profile.d/conda.sh"
 echo "      conda activate ${ENV_NAME}"
 echo "    Or from inacawo-iht:"
 echo "      source \$HOME/inacawo-iht/setup_env.bash"

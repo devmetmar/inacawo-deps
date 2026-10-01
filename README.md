@@ -6,17 +6,23 @@ Pinned dependencies for the InaCAWO hindcast workflow.
 
 ```
 $HOME/inacawo-deps/
-  install_hindcast_env.bash   # wrapper: Miniforge + hindcast env
+  env                          # path SST (LO, conda, CAWO_HINDCAST_BASE, …)
+  coawst.bash_env_intel.source_oneapi  # Intel/COAWST toolchain (COAWST_ENV)
+  install_hindcast_env.bash   # wrapper: dirs + Miniforge + hindcast env
   hindcast.yml
   LO/                         # LiveOcean code (pip editable lo_tools)
   miniforge3/                 # local Miniforge (gitignored; created by wrapper)
+  apps/                       # compiled deps (NetCDF, MCT, …) → LIBDEP
 
 $HOME/inacawo-iht/preprocess/
   LO_user/                    # LO user config + forcing drivers
   get_era5/ get_glorys/ get_roms_icbc/ get_swan_bry/ wps_run/
 
-/scratch/$USER/LO_data/
-/scratch/$USER/LO_output/
+/scratch/$USER/inacawo-iht/          # CAWO_HINDCAST_BASE
+  preprocess/                   # SCRATCH_PREPROCESS
+    LO_data/ LO_output/ LO_roms/
+    roms_forcing/ era5/ mercator/ wps_run/ swan_bcs/ …
+  cawo_hindcast_run/ cawo_output/ cawo_post/
 ```
 
 ## One-shot install (recommended)
@@ -30,8 +36,11 @@ bash install_hindcast_env.bash
 
 The wrapper will:
 
-1. Install **Miniforge3** into `$HOME/inacawo-deps/miniforge3` if `conda` is not already there
-2. Create (or update) the **`hindcast`** env from `hindcast.yml` (includes editable `./LO/lo_tools`)
+1. Ensure user-relative LO dirs under `/scratch/$USER/inacawo-iht/preprocess/` (`LO_data`, `LO_data/grids`, `LO_output`, `LO_roms`) and `LO_user` if `inacawo-iht` is already cloned (paths from `env`)
+2. Install **Miniforge3** into `$HOME/inacawo-deps/miniforge3` if `conda` is not already there
+3. Create (or update) the **`hindcast`** env from `hindcast.yml` (includes editable `./LO/lo_tools`)
+
+Shared with iht: `CAWO_HINDCAST_BASE`, `LO` / `LO_USER` / `LO_DATA` / `LO_OUTPUT` / `LO_ROMS`, `CONDA_BASE`, `LIBDEP`, `COAWST_ENV` (defined here only — `inacawo-iht/env` sources this file and must not redefine them).
 
 Options:
 
@@ -60,4 +69,4 @@ conda activate hindcast
 
 Must run from this directory so `./LO/lo_tools` resolves.
 
-Point `CONDA_BASE` in `$HOME/inacawo-iht/env` at your prefix if it is not under `inacawo-deps/miniforge3` or `$HOME/opt/miniforge3`.
+Override `CONDA_BASE` before sourcing if your prefix is not under `inacawo-deps/miniforge3` or `$HOME/opt/miniforge3` (set in `inacawo-deps/env`).

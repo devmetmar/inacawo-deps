@@ -1,0 +1,70 @@
+#!/bin/bash
+# Intel oneAPI + CAWO compiled-deps toolchain for WPS / COAWST builds & runs.
+# Do NOT fold into inacawo-deps/env — this mutates modules/PATH/compilers and
+# must only be sourced by jobs that need the Intel stack (via COAWST_ENV).
+#
+#   source "${COAWST_ENV}"
+#   # or: source $HOME/inacawo-deps/coawst.bash_env_intel.source_oneapi
+#
+# Relies on DEPS_BASE / LIBDEP from inacawo-deps/env when available.
+#
+
+_DEPS_BASE="${DEPS_BASE:-${HOME}/inacawo-deps}"
+_INSTALL_PREFIX="${_DEPS_BASE}/apps/cawo_depends/intel_2021.5.1/build"
+# LIBDEP is .../build/lib — derive prefix if already set
+if [[ -n "${LIBDEP:-}" ]]; then
+  _INSTALL_PREFIX="$(cd "${LIBDEP}/.." && pwd)"
+fi
+export install_prefix="${_INSTALL_PREFIX}/"
+
+module purge
+
+source /opt/software/intel/oneapi/setvars.sh
+
+export CPP='icc -E'
+export CXXCPP='icpc -E'
+
+unset CC
+unset CXX
+unset FC
+unset F9X
+unset F90
+
+export CC=icc
+export CXX=icpc
+export FC=ifort
+export F9X=ifort
+export F90=ifort
+
+export I_MPI_CC=icc
+export I_MPI_CXX=icpc
+export I_MPI_F77=ifort
+export I_MPI_F90=ifort
+
+export NETCDF=$install_prefix
+export NETCDF_LIBDIR=$install_prefix'lib/'
+export NETCDF_INCDIR=$install_prefix'include/'
+export NETCDF_CONFIG=$install_prefix'bin/nc-config'
+export NC_CONFIG=$install_prefix'bin/nc-config'
+export NF_CONFIG=$install_prefix'bin/nf-config'
+export NETCDF4=1
+export MCT_INCDIR=$install_prefix'include'
+export MCT_LIBDIR=$install_prefix'lib'
+export JASPERLIB=$install_prefix'lib'
+export JASPERINC=$install_prefix'include'
+export HDF5=$install_prefix
+export HDF5_LIBDIR=$install_prefix'lib'
+export HDF5_INCDIR=$install_prefix'include'
+export CURL_LIBDIR=$install_prefix'lib'
+export WRFIO_NCD_LARGE_FILE_SUPPORT=1
+
+export CPPFLAGS='-O3 -march=core-avx2 -ip -I'$I_MPI_ROOT'/include -I'$install_prefix'include/'
+export LDFLAGS='-O3 -march=core-avx2 -ip -L'$I_MPI_ROOT'/lib -lmpi -L'$install_prefix'lib/'
+
+export PATH=${install_prefix}include:$PATH
+export PATH=${install_prefix}bin:$PATH
+export PATH=${I_MPI_ROOT}/include:$PATH
+export PATH=$PATH:/usr/share/Modules/bin:/usr/local/bin:/usr/local/sbin:/usr/bin
+
+export LD_LIBRARY_PATH=$install_prefix'lib':$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=${I_MPI_ROOT}/lib:$LD_LIBRARY_PATH

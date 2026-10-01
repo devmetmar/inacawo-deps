@@ -1,0 +1,47 @@
+#!/bin/bash
+# inacawo-deps/env — SST for deps-owned + shared LO / hindcast-base paths.
+# Workflow-only paths (WPS, templates, …) live in $HOME/inacawo-iht/env.
+#
+#   source $HOME/inacawo-deps/env
+#
+# -----------------
+# User / scratch roots
+# -----------------
+export HOME_DIR="${HOME}"
+export USER_NAME="${USER}"
+export SCRATCH="/scratch/${USER}"
+#
+# -----------------
+# Deps root + conda
+# -----------------
+export DEPS_BASE="${HOME}/inacawo-deps"
+export CONDA_BASE="${CONDA_BASE:-${DEPS_BASE}/miniforge3}"
+if [[ ! -x "${CONDA_BASE}/bin/conda" && -x "${HOME}/opt/miniforge3/bin/conda" ]]; then
+  # Legacy fallback until migrated to deps-local Miniforge
+  export CONDA_BASE="${HOME}/opt/miniforge3"
+fi
+export HINDCAST_YML="${DEPS_BASE}/hindcast.yml"
+export HINDCAST_ENV_NAME="${HINDCAST_ENV_NAME:-hindcast}"
+#
+# -----------------
+# Shared hindcast base (same value for deps install + iht workflow)
+# -----------------
+export CAWO_HINDCAST_BASE="${SCRATCH}/inacawo-iht"
+#
+# -----------------
+# LiveOcean (code in deps; LO_user in iht; data/output on scratch)
+# Scratch mirrors home: $CAWO_HINDCAST_BASE/preprocess/
+# -----------------
+export LO="${DEPS_BASE}/LO"
+export LO_USER="${HOME}/inacawo-iht/preprocess/LO_user"
+export SCRATCH_PREPROCESS="${CAWO_HINDCAST_BASE}/preprocess"
+export LO_DATA="${SCRATCH_PREPROCESS}/LO_data"
+export LO_OUTPUT="${SCRATCH_PREPROCESS}/LO_output"
+export LO_ROMS="${SCRATCH_PREPROCESS}/LO_roms"
+#
+# ----------------
+# Compiled deps under apps/ + Intel/COAWST toolchain (separate file — do not
+# source from path SST; WPS/run scripts source COAWST_ENV only when needed)
+# ----------------
+export LIBDEP="${DEPS_BASE}/apps/cawo_depends/intel_2021.5.1/build/lib"
+export COAWST_ENV="${DEPS_BASE}/coawst.bash_env_intel.source_oneapi"

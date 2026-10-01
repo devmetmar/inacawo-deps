@@ -1,0 +1,14 @@
+# Apps tree is maintained separately for now
+/apps/
+
+# Editor / OS junk
+.DS_Store
+*~
+*.swp
+
+# Python / conda noise at repo root
+__pycache__/
+*.py[cod]
+.env
+.venv/
+*.egg-info/

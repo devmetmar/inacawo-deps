@@ -1,0 +1,73 @@
+# Unified hindcast conda environment
+# Merges: loenv + cawo_post (xesmf/esmpy) + cdsapi + copernicusmarine
+# Verified: Python 3.13 (clone loenv + install extras into env "hindcast").
+#
+# Create (must run from this directory so ./LO/lo_tools resolves):
+#   cd inacawo-deps
+#   mamba env create -f hindcast.yml
+#
+# lo_tools is editable from the LOCAL LO tree in this repo (not GitHub upstream).
+
+name: hindcast
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  # Core scientific stack (LO / forcing / post)
+  - numpy
+  - scipy
+  - pandas
+  - xarray
+  - netcdf4
+  - h5py
+  - h5netcdf
+  - cftime
+  - cf_xarray
+  - zarr
+  - numcodecs
+  - dask
+  - numba >= 0.49
+  - matplotlib
+  - cartopy
+  - cmocean
+  - cmcrameri
+  - shapely
+  - pyproj
+  - gsw
+  - seawater
+  - UTide
+  - ephem
+  - scikit-learn
+  # GRIB / regrid (cawo_post)
+  - cfgrib
+  - python-eccodes
+  - eccodes
+  - esmf
+  - esmpy
+  - xesmf
+  # Data download (copernicusmarine conda; cdsapi via pip)
+  - copernicusmarine
+  # Utilities
+  - fsspec
+  - s3fs
+  - boto3
+  - requests
+  - tqdm
+  - pyyaml
+  - pillow
+  - openpyxl
+  - xlrd
+  - beautifulsoup4
+  - lxml
+  - sqlalchemy
+  - ipykernel
+  - git
+  - pip
+  - ffmpeg
+  - nco
+  - pip:
+    # Relative to this file's directory — do NOT replace with a GitHub URL
+    - -e ./LO/lo_tools
+    - azure-storage-blob
+    - PyCO2SYS
+    - cdsapi==0.7.7

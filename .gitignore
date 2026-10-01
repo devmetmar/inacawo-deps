@@ -3,6 +3,8 @@
 
 # Local Miniforge install (created by install_hindcast_env.bash)
 /miniforge3/
+# Pointer to active hindcast prefix (local or shared); machine-local
+/hindcast_env.prefix
 
 # Editor / OS junk
 .DS_Store

@@ -7,7 +7,8 @@
 # Usage:
 #   bash $HOME/inacawo-deps/install_hindcast_env.bash
 #   bash install_hindcast_env.bash --force-recreate
-#   bash install_hindcast_env.bash --offline              # no network; use local cache
+#   bash install_hindcast_env.bash --offline              # use shared scratch env
+#   bash install_hindcast_env.bash --offline --from-clone PATH  # optional private copy
 #   bash install_hindcast_env.bash --cache-dir /path      # override cache root
 #   bash install_hindcast_env.bash --prefetch-miniforge   # download installer only
 #
@@ -23,44 +24,69 @@ export CONDA_BASE="${CONDA_PREFIX_DIR}"
 YML="${HINDCAST_YML:-${DEPS_ROOT}/hindcast.yml}"
 ENV_NAME="${HINDCAST_ENV_NAME:-hindcast}"
 
-# Shared on-disk cache (Miniforge installer + conda pkgs) for offline / flaky network
+# Shared on-disk cache on scratch (readable by teammates; NOT under $HOME)
 CACHE_DIR="${CACHE_DIR:-/scratch/cawohdcst_ft2/inacawo-deps-cache}"
+# Shared hindcast env (default for --offline; no per-user copy)
+DEFAULT_SHARED_ENV="${DEFAULT_SHARED_ENV:-${CACHE_DIR}/envs/hindcast}"
+# Back-compat alias used by older docs/flags
+DEFAULT_CLONE_SRC="${DEFAULT_CLONE_SRC:-${DEFAULT_SHARED_ENV}}"
+PREFIX_FILE="${DEPS_ROOT}/hindcast_env.prefix"
 
 FORCE_RECREATE=0
 OFFLINE=0
 PREFETCH_ONLY=0
+CLONE_SRC=""
+SEED_PKGS_FROM=""
 
 usage() {
   cat <<EOF
 Usage: $0 [options]
 
 Options:
-  --force-recreate       Remove and recreate the hindcast env
-  --offline, --local     No downloads; use installer + pkgs under --cache-dir
-  --cache-dir DIR        Cache root (default: ${CACHE_DIR})
-  --prefetch-miniforge   Download Miniforge installer into cache, then exit
-  -h, --help             Show this help
+  --force-recreate         Remove and recreate a *private* local hindcast env
+  --offline, --local       No channel downloads; use shared scratch env (default)
+  --from-clone PATH        Optional: rsync-copy PATH into private local env
+  --seed-pkgs-from PATH    Copy/rsync conda pkgs dir into cache (for offline yaml create)
+  --cache-dir DIR          Cache root (default: ${CACHE_DIR})
+  --prefetch-miniforge     Download Miniforge installer into cache, then exit
+  -h, --help               Show this help
 
-Cache layout:
+Cache layout (all under scratch — group-readable, not \$HOME):
   \$CACHE_DIR/miniforge/Miniforge3-*.sh
-  \$CACHE_DIR/conda-pkgs/          # shared CONDA_PKGS_DIRS (populated on online installs)
+  \$CACHE_DIR/conda-pkgs/
+  \$CACHE_DIR/envs/hindcast/     # SHARED env used by --offline (preferred)
 
 Examples:
-  # Normal (uses cache if present, else downloads into cache)
+  # Online: private env under \$HOME/inacawo-deps/miniforge3/envs/hindcast
   bash $0
 
-  # Network down: after one successful online install (or manual copy into cache)
+  # Offline / flaky network: point at shared scratch env (no 4G copy)
   bash $0 --offline
 
-  # Seed installer only
+  # Optional private offline copy (slow; only if you need a writable env)
+  bash $0 --offline --from-clone ${DEFAULT_SHARED_ENV}
+
+  # Maintainer: publish/update the shared env (run as cache owner)
+  #   conda create -p \$CACHE_DIR/envs/hindcast --clone \$HOME/opt/miniforge3/envs/hindcast -y
+  #   chmod -R a+rX \$CACHE_DIR
+
   bash $0 --prefetch-miniforge
 EOF
 }
-
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force-recreate) FORCE_RECREATE=1 ;;
     --offline|--local|--local-only) OFFLINE=1 ;;
+    --from-clone)
+      shift
+      [[ $# -gt 0 ]] || { echo "ERROR: --from-clone needs a path" >&2; exit 1; }
+      CLONE_SRC="$1"
+      ;;
+    --seed-pkgs-from)
+      shift
+      [[ $# -gt 0 ]] || { echo "ERROR: --seed-pkgs-from needs a path" >&2; exit 1; }
+      SEED_PKGS_FROM="$1"
+      ;;
     --cache-dir)
       shift
       [[ $# -gt 0 ]] || { echo "ERROR: --cache-dir needs a path" >&2; exit 1; }
@@ -265,31 +291,201 @@ if [[ "${OFFLINE}" -eq 1 ]]; then
   UPDATE+=(--offline)
 fi
 
+# ---- optional: seed package cache ----
+if [[ -n "${SEED_PKGS_FROM}" ]]; then
+  if [[ ! -d "${SEED_PKGS_FROM}" ]]; then
+    echo "ERROR: --seed-pkgs-from not a directory: ${SEED_PKGS_FROM}" >&2
+    exit 1
+  fi
+  echo "==> Seeding conda pkgs cache from ${SEED_PKGS_FROM}"
+  echo "    → ${CACHE_PKGS}"
+  t0="$(now_s)"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --info=progress2 "${SEED_PKGS_FROM}/" "${CACHE_PKGS}/"
+  else
+    cp -a "${SEED_PKGS_FROM}/." "${CACHE_PKGS}/"
+  fi
+  t1="$(now_s)"
+  echo "==> Seed done ($(fmt_elapsed "$((t1 - t0))"))"
+fi
+
+pkgs_count() {
+  # Count real package archives (ignore urls.txt / cache dirs)
+  find "${CACHE_PKGS}" -maxdepth 1 \( -name '*.conda' -o -name '*.tar.bz2' \) 2>/dev/null | wc -l
+}
+
+reinstall_lo_tools() {
+  echo "==> Reinstalling editable lo_tools into ${ENV_PREFIX}"
+  # shellcheck disable=SC1091
+  source "${CONDA_PREFIX_DIR}/etc/profile.d/conda.sh"
+  conda run -p "${ENV_PREFIX}" python -m pip install -e "${DEPS_ROOT}/LO/lo_tools"
+}
+
+write_prefix_file() {
+  local prefix="$1"
+  printf '%s\n' "${prefix}" > "${PREFIX_FILE}"
+  echo "    wrote ${PREFIX_FILE}"
+  echo "      → ${prefix}"
+}
+
+use_shared_env() {
+  local src="${1:-${DEFAULT_SHARED_ENV}}"
+  if [[ ! -d "${src}/conda-meta" ]]; then
+    echo "ERROR: shared hindcast env not found: ${src}" >&2
+    echo "       Maintainer must publish it under \$CACHE_DIR/envs/hindcast" >&2
+    exit 1
+  fi
+  if [[ ! -r "${src}/conda-meta" ]]; then
+    echo "ERROR: cannot read shared env (permissions): ${src}" >&2
+    echo "       Ask maintainer to: chmod -R a+rX ${CACHE_DIR}" >&2
+    exit 1
+  fi
+  echo "==> Using SHARED hindcast env (no copy)"
+  echo "    ${src}"
+  ENV_PREFIX="${src}"
+  write_prefix_file "${ENV_PREFIX}"
+  # Do not pip-install into shared (read-only for other users).
+  # setup_env + \$LO make each user's lo_tools visible via editable finder.
+}
+
+create_env_from_yml() {
+  echo "==> Creating env '${ENV_NAME}' at ${ENV_PREFIX} from hindcast.yml"
+  "${CREATE[@]}" -p "${ENV_PREFIX}" -f "${YML}"
+  write_prefix_file "${ENV_PREFIX}"
+}
+
+# Rewrite absolute conda prefix in text files after a filesystem copy.
+# (conda create --clone --offline still tries to fetch package archives.)
+rewrite_conda_prefix() {
+  local old_prefix="$1"
+  local new_prefix="$2"
+  python3 - "${old_prefix}" "${new_prefix}" <<'PY'
+import os, sys
+old, new = sys.argv[1], sys.argv[2]
+old_b = old.encode()
+n_files = 0
+for root, _dirs, files in os.walk(new):
+    for name in files:
+        path = os.path.join(root, name)
+        try:
+            if os.path.islink(path) or not os.path.isfile(path):
+                continue
+            with open(path, "rb") as f:
+                data = f.read()
+            if b"\0" in data or old_b not in data:
+                continue
+            text = data.decode("utf-8", errors="surrogateescape")
+            updated = text.replace(old, new)
+            if updated == text:
+                continue
+            with open(path, "wb") as f:
+                f.write(updated.encode("utf-8", errors="surrogateescape"))
+            n_files += 1
+        except OSError:
+            pass
+print(f"    rewrote prefix in {n_files} text files")
+print(f"    {old} → {new}")
+PY
+}
+
+create_env_from_clone() {
+  local src="$1"
+  if [[ ! -d "${src}/conda-meta" ]]; then
+    echo "ERROR: clone source is not a conda env: ${src}" >&2
+    exit 1
+  fi
+  if [[ -e "${ENV_PREFIX}" ]]; then
+    echo "==> Removing existing target before copy: ${ENV_PREFIX}"
+    rm -rf "${ENV_PREFIX}"
+  fi
+  mkdir -p "$(dirname "${ENV_PREFIX}")"
+  echo "==> Copying env to PRIVATE local prefix (slow; optional)"
+  echo "    ${src}"
+  echo "    → ${ENV_PREFIX}"
+  t_copy="$(now_s)"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --human-readable --info=progress2,stats2 "${src}/" "${ENV_PREFIX}/"
+  else
+    echo "    (rsync missing — cp -av; very chatty)"
+    mkdir -p "${ENV_PREFIX}"
+    cp -av "${src}/." "${ENV_PREFIX}/"
+  fi
+  echo "    copy done ($(fmt_elapsed "$(( $(now_s) - t_copy ))"))"
+  rewrite_conda_prefix "${src}" "${ENV_PREFIX}"
+  reinstall_lo_tools
+  write_prefix_file "${ENV_PREFIX}"
+}
+
 # Editable -e ./LO/lo_tools must resolve relative to DEPS_ROOT
 cd "${DEPS_ROOT}"
 
+# Local private prefix (online / --from-clone). Offline default uses shared instead.
+LOCAL_ENV_PREFIX="${CONDA_PREFIX_DIR}/envs/${ENV_NAME}"
+ENV_PREFIX="${LOCAL_ENV_PREFIX}"
+
 t0="$(now_s)"
-if [[ -d "${ENV_PREFIX}/conda-meta" ]]; then
+ENV_DONE=0
+
+# --offline without --from-clone → use shared env (fast path)
+if [[ "${OFFLINE}" -eq 1 && -z "${CLONE_SRC}" ]]; then
+  use_shared_env "${DEFAULT_SHARED_ENV}"
+  ENV_ACTION="shared"
+  ENV_DONE=1
+  t1="$(now_s)"
+  T_ENV="$((t1 - t0))"
+  echo "==> Env step done (${ENV_ACTION}, $(fmt_elapsed "${T_ENV}"))"
+fi
+
+if [[ "${ENV_DONE}" -ne 1 && -d "${ENV_PREFIX}/conda-meta" ]]; then
   if [[ "${FORCE_RECREATE}" -eq 1 ]]; then
     echo "==> Removing existing env at ${ENV_PREFIX} (--force-recreate)"
-    "${REMOVE[@]}" -p "${ENV_PREFIX}" -y
-    echo "==> Creating env '${ENV_NAME}' at ${ENV_PREFIX}"
-    "${CREATE[@]}" -p "${ENV_PREFIX}" -f "${YML}"
-    ENV_ACTION="recreated"
+    "${REMOVE[@]}" -p "${ENV_PREFIX}" -y || rm -rf "${ENV_PREFIX}"
   else
-    echo "==> Env already exists at ${ENV_PREFIX} — updating from hindcast.yml"
-    echo "    (use --force-recreate for a clean rebuild)"
-    "${UPDATE[@]}" -p "${ENV_PREFIX}" -f "${YML}" --prune
-    ENV_ACTION="updated"
+    if [[ -n "${CLONE_SRC}" ]]; then
+      echo "==> Env already exists at ${ENV_PREFIX} — skip clone (use --force-recreate to replace)"
+      write_prefix_file "${ENV_PREFIX}"
+      ENV_ACTION="exists"
+    else
+      echo "==> Env already exists at ${ENV_PREFIX} — updating from hindcast.yml"
+      echo "    (use --force-recreate for a clean rebuild)"
+      "${UPDATE[@]}" -p "${ENV_PREFIX}" -f "${YML}" --prune
+      write_prefix_file "${ENV_PREFIX}"
+      ENV_ACTION="updated"
+    fi
+    t1="$(now_s)"
+    T_ENV="$((t1 - t0))"
+    echo "==> Env step done (${ENV_ACTION}, $(fmt_elapsed "${T_ENV}"))"
+    ENV_DONE=1
   fi
-else
-  echo "==> Creating env '${ENV_NAME}' at ${ENV_PREFIX}"
-  "${CREATE[@]}" -p "${ENV_PREFIX}" -f "${YML}"
-  ENV_ACTION="created"
 fi
-t1="$(now_s)"
-T_ENV="$((t1 - t0))"
-echo "==> Env step done (${ENV_ACTION}, $(fmt_elapsed "${T_ENV}"))"
+
+if [[ "${ENV_DONE}" -ne 1 ]]; then
+  ENV_PREFIX="${LOCAL_ENV_PREFIX}"
+  mkdir -p "${CONDA_ENVS_DIRS}"
+  if [[ -n "${CLONE_SRC}" ]]; then
+    create_env_from_clone "${CLONE_SRC}"
+    ENV_ACTION="cloned"
+  elif [[ "${OFFLINE}" -eq 1 ]]; then
+    n_pkgs="$(pkgs_count)"
+    if [[ "${n_pkgs}" -lt 10 ]]; then
+      echo "ERROR: --offline with --from-clone needed a source, or seed pkgs for yaml create." >&2
+      echo "       Shared env missing/unreadable and pkgs cache has ${n_pkgs} archives." >&2
+      echo "       Fix options:" >&2
+      echo "         1) bash $0 --offline                          # use shared env" >&2
+      echo "         2) bash $0 --offline --from-clone ${DEFAULT_SHARED_ENV}" >&2
+      echo "         3) bash $0 --seed-pkgs-from /path/to/pkgs     # then --offline --from-clone skipped + yaml" >&2
+      exit 1
+    fi
+    create_env_from_yml
+    ENV_ACTION="created"
+  else
+    create_env_from_yml
+    ENV_ACTION="created"
+  fi
+  t1="$(now_s)"
+  T_ENV="$((t1 - t0))"
+  echo "==> Env step done (${ENV_ACTION}, $(fmt_elapsed "${T_ENV}"))"
+fi
 
 T_TOTAL="$(( $(now_s) - T_START ))"
 
@@ -301,6 +497,7 @@ echo "      hindcast  : ${ENV_ACTION}  $(fmt_elapsed "${T_ENV}")"
 echo "      total     : $(fmt_elapsed "${T_TOTAL}")"
 echo "    CONDA_BASE=${CONDA_BASE}"
 echo "    HINDCAST_ENV_PREFIX=${ENV_PREFIX}"
+echo "    HINDCAST_SHARED_ENV=${DEFAULT_SHARED_ENV}"
 echo "    CACHE_DIR=${CACHE_DIR}"
 echo "    LO_DATA=${LO_DATA}"
 echo "    LO_OUTPUT=${LO_OUTPUT}"

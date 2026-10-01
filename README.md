@@ -59,27 +59,41 @@ The wrapper prints elapsed time for **Miniforge**, **hindcast env**, and **total
 
 ### Local / offline cache (flaky network)
 
-Default cache root: **`/scratch/cawohdcst_ft2/inacawo-deps-cache`**
+Default cache root (shared on **scratch**, not `$HOME`):  
+**`/scratch/cawohdcst_ft2/inacawo-deps-cache`**
 
 ```
 $CACHE_DIR/
-  miniforge/Miniforge3-Linux-x86_64.sh   # installer (auto-downloaded, or copy by hand)
-  conda-pkgs/                            # shared CONDA_PKGS_DIRS
+  miniforge/Miniforge3-Linux-x86_64.sh
+  conda-pkgs/
+  envs/hindcast/          # SHARED read-only hindcast env (--offline uses this)
 ```
 
-- Online runs download the Miniforge installer into the cache (retries reuse it) and store conda packages under `conda-pkgs/` so later installs (or other users pointing at the same cache) hit disk first.
-- If the network is down after a successful seed:
+Other users **cannot** read `$HOME/cawohdcst_ft2/...`. Always put shareable
+installers / reference envs under this scratch cache and `chmod -R a+rX`.
+
+**`--offline`** (recommended when network is flaky): no package downloads and
+**no 4G copy**. Points `HINDCAST_ENV_PREFIX` at the shared scratch env and
+writes `hindcast_env.prefix`. Each user’s own `$HOME/inacawo-deps/LO/lo_tools`
+is used via `$LO` (shared env is read-only).
 
 ```bash
+# Other users (no permission on ft2 $HOME):
 bash install_hindcast_env.bash --offline
+# → uses /scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast
+
+# Optional private copy (slow; only if you need a writable env):
+bash install_hindcast_env.bash --offline --from-clone \
+  /scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast
 ```
 
-- Manual seed of the installer (e.g. scp from another host):
+Maintainer: refresh the shared reference env after updating hindcast:
 
 ```bash
-mkdir -p /scratch/cawohdcst_ft2/inacawo-deps-cache/miniforge
-# place Miniforge3-Linux-x86_64.sh there, then:
-bash install_hindcast_env.bash --offline
+rm -rf /scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast
+conda create -p /scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast \
+  --clone $HOME/opt/miniforge3/envs/hindcast -y
+chmod -R a+rX /scratch/cawohdcst_ft2/inacawo-deps-cache
 ```
 
 Requires `curl` for the first Miniforge download (unless the installer is already cached). `miniforge3/` under the repo is gitignored (do not commit it).

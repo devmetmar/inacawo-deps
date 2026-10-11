@@ -8,11 +8,16 @@ Pinned dependencies for the InaCAWO hindcast workflow.
 $HOME/inacawo-deps/
   env                          # path SST (LO, conda, CAWO_HINDCAST_BASE, …)
   coawst.bash_env_intel.source_oneapi  # Intel/COAWST toolchain (COAWST_ENV)
-  install_hindcast_env.bash   # wrapper: dirs + Miniforge + hindcast env
+  install_hindcast_env.bash   # wrapper: dirs + COAWST deps + Miniforge + hindcast env
   hindcast.yml
   LO/                         # LiveOcean code (pip editable lo_tools)
   miniforge3/                 # local Miniforge (gitignored; created by wrapper)
-  apps/                       # compiled deps (NetCDF, MCT, …) → LIBDEP
+
+$HOME/apps/                   # APPS_BASE (outside the repo; created by wrapper)
+  cawo_depends/intel_2021.5.1/
+    build/{bin,include,lib}   # NetCDF-C/F, HDF5, MCT, jasper, … → LIBDEP=build/lib
+    src/                      # sources + build scripts of the deps
+    .inacawo_installed        # marker: tarball, sha256, install date
 
 $HOME/inacawo-iht/preprocess/
   LO_user/                    # LO user config + forcing drivers
@@ -37,10 +42,11 @@ bash install_hindcast_env.bash
 The wrapper will:
 
 1. Ensure user-relative LO dirs under `/scratch/$USER/inacawo-iht/cawo_input/` (`LO_data`, `LO_data/grids`, `LO_output`, `LO_roms`) and `LO_user` if `inacawo-iht` is already cloned (paths from `env`)
-2. Install **Miniforge3** into `$HOME/inacawo-deps/miniforge3` if `conda` is not already there
-3. Create (or update) the **`hindcast`** env from `hindcast.yml` (includes editable `./LO/lo_tools`)
+2. Extract the compiled **COAWST model deps** into `$HOME/apps/cawo_depends/intel_2021.5.1` (see below)
+3. Install **Miniforge3** into `$HOME/inacawo-deps/miniforge3` if `conda` is not already there
+4. Create (or update) the **`hindcast`** env from `hindcast.yml` (includes editable `./LO/lo_tools`)
 
-Shared with iht: `CAWO_HINDCAST_BASE`, `CAWO_INPUT`, `LO` / `LO_USER` / `LO_DATA` / `LO_OUTPUT` / `LO_ROMS`, `CONDA_BASE`, `CONDA_ENVS_DIRS` / `HINDCAST_ENV_PREFIX`, `LIBDEP`, `COAWST_ENV` (defined here only — `inacawo-iht/env` sources this file and must not redefine them).
+Shared with iht: `CAWO_HINDCAST_BASE`, `CAWO_INPUT`, `LO` / `LO_USER` / `LO_DATA` / `LO_OUTPUT` / `LO_ROMS`, `CONDA_BASE`, `CONDA_ENVS_DIRS` / `HINDCAST_ENV_PREFIX`, `APPS_BASE`, `LIBDEP`, `COAWST_ENV` (defined here only — `inacawo-iht/env` sources this file and must not redefine them).
 
 The `hindcast` env is always created at **`$CONDA_BASE/envs/hindcast`** (not `~/envs`), even if `~/.condarc` sets a different `envs_dirs`.
 
@@ -51,11 +57,53 @@ bash install_hindcast_env.bash --force-recreate      # delete + recreate hindcas
 bash install_hindcast_env.bash --prefetch-miniforge  # download installer into cache only
 bash install_hindcast_env.bash --offline             # no network; use local cache
 bash install_hindcast_env.bash --cache-dir /path     # override cache root
+bash install_hindcast_env.bash --only-coawst-deps    # model libs only (no conda)
+bash install_hindcast_env.bash --skip-coawst-deps    # conda / LO only
+bash install_hindcast_env.bash --force-coawst-deps   # remove + re-extract model libs
+bash install_hindcast_env.bash --coawst-tarball PATH # override deps tarball
+```
+
+### COAWST model deps (NetCDF, HDF5, MCT, …)
+
+Prebuilt with Intel oneAPI 2021.5.1 (NetCDF-C 4.6.1, NetCDF-Fortran 4.4.5,
+HDF5 1.10.6, MCT 2.6.0, jasper, libpng, curl, szip, zlib, udunits, expat).
+The wrapper extracts the shared tarball into `$APPS_BASE` (default `$HOME/apps`):
+
+```
+/scratch/cawohdcst_ft2/inacawo-iht/deps_tarballs/   # CAWO_DEPS_TARBALL_DIR (a+rX)
+  apps.cawo_depends.mdclogin0.tar.gz              # 563 MB compressed
+  SHA256SUMS
+```
+
+- Skipped if `$LIBDEP/libnetcdff.so` already exists (use `--force-coawst-deps` to redo).
+- Verifies sha256 when `SHA256SUMS` sits next to the tarball.
+- Rewrites the original build root baked into `nc-config`, `nf-config`, `*.la`,
+  `*.pc`, `*.settings` to the new location, then checks `nf-config --prefix`
+  / `nc-config --libdir` and the key libraries.
+- Needs **~36 GiB** free in `$APPS_BASE` (almost all of it is netcdf-c test
+  output under `src/`; `build/` itself is ~48 MB) and takes ~5 min.
+
+Use them via `COAWST_ENV` (sets compilers, `NETCDF`, `NF_CONFIG`, `MCT_*`,
+`LD_LIBRARY_PATH`, …):
+
+```bash
+source $HOME/inacawo-deps/env
+source "${COAWST_ENV}"
+nf-config --flibs
+```
+
+Maintainer: refresh the shared tarball (run as `cawohdcst_ft2`):
+
+```bash
+D=/scratch/cawohdcst_ft2/inacawo-iht/deps_tarballs
+cp -p $HOME/apps/tars/apps.cawo_depends.mdclogin0.tar.gz $D/
+(cd $D && sha256sum apps.cawo_depends.mdclogin0.tar.gz > SHA256SUMS)
+chmod 755 $D && chmod 644 $D/*
 ```
 
 ### Timing
 
-The wrapper prints elapsed time for **Miniforge**, **hindcast env**, and **total**.
+The wrapper prints elapsed time for **COAWST deps**, **Miniforge**, **hindcast env**, and **total**.
 
 ### Local / offline cache (flaky network)
 

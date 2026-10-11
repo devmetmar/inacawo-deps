@@ -62,8 +62,13 @@ export LO_OUTPUT="${CAWO_INPUT}/LO_output"
 export LO_ROMS="${CAWO_INPUT}/LO_roms"
 #
 # ----------------
-# Compiled deps under apps/ + Intel/COAWST toolchain (separate file — do not
-# source from path SST; WPS/run scripts source COAWST_ENV only when needed)
+# Compiled model deps (NetCDF, HDF5, MCT, …) under $HOME/apps, extracted by
+# install_hindcast_env.bash from the shared tarball on scratch.
+# Intel/COAWST toolchain is a separate file — do not source from path SST;
+# WPS/run scripts source COAWST_ENV only when needed.
 # ----------------
-export LIBDEP="${DEPS_BASE}/apps/cawo_depends/intel_2021.5.1/build/lib"
+export APPS_BASE="${APPS_BASE:-${HOME}/apps}"
+export CAWO_DEPS_TARBALL_DIR="${CAWO_DEPS_TARBALL_DIR:-/scratch/cawohdcst_ft2/inacawo-iht/deps_tarballs}"
+export CAWO_DEPS_TARBALL="${CAWO_DEPS_TARBALL:-${CAWO_DEPS_TARBALL_DIR}/apps.cawo_depends.mdclogin0.tar.gz}"
+export LIBDEP="${APPS_BASE}/cawo_depends/intel_2021.5.1/build/lib"
 export COAWST_ENV="${DEPS_BASE}/coawst.bash_env_intel.source_oneapi"

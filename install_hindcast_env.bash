@@ -1,12 +1,17 @@
 #!/bin/bash
 # Install Miniforge into inacawo-deps (if missing), create required LO dirs for
-# the current user, then create/update the hindcast conda env.
+# the current user, extract the compiled COAWST model deps (NetCDF, HDF5, MCT, …)
+# into $HOME/apps, then create/update the hindcast conda env.
 #
 # Paths come from env (SST): source $DEPS_ROOT/env
 #
 # Usage:
 #   bash $HOME/inacawo-deps/install_hindcast_env.bash
 #   bash install_hindcast_env.bash --force-recreate
+#   bash install_hindcast_env.bash --only-coawst-deps     # model libs only (no conda)
+#   bash install_hindcast_env.bash --skip-coawst-deps     # conda/LO only
+#   bash install_hindcast_env.bash --force-coawst-deps    # re-extract model libs
+#   bash install_hindcast_env.bash --coawst-tarball PATH  # override deps tarball
 #   bash install_hindcast_env.bash --offline              # use shared scratch env
 #   bash install_hindcast_env.bash --offline --from-clone PATH  # optional private copy
 #   bash install_hindcast_env.bash --cache-dir /path      # override cache root
@@ -40,6 +45,9 @@ PREFETCH_ONLY=0
 CLONE_SRC=""
 SEED_PKGS_FROM=""
 CACHE_DIR_SET=0
+COAWST_DEPS_MODE="install"   # install | skip | only
+FORCE_COAWST_DEPS=0
+COAWST_DEPS_SUBDIR="cawo_depends/intel_2021.5.1"
 # Optional: env CACHE_DIR=... or --cache-dir overrides selection below
 if [[ -n "${CACHE_DIR:-}" ]]; then
   CACHE_DIR_SET=1
@@ -56,7 +64,15 @@ Options:
   --seed-pkgs-from PATH    Copy/rsync conda pkgs into shared/cache-dir (maintainer)
   --cache-dir DIR          Override cache root (default: private online, shared offline)
   --prefetch-miniforge     Download Miniforge installer into shared/cache-dir, then exit
+  --coawst-tarball PATH    COAWST model deps tarball (default: \$CAWO_DEPS_TARBALL)
+  --skip-coawst-deps       Do not install COAWST model deps into \$APPS_BASE
+  --only-coawst-deps       Only install COAWST model deps (skip Miniforge / conda env)
+  --force-coawst-deps      Remove and re-extract COAWST model deps
   -h, --help               Show this help
+
+COAWST model deps (NetCDF, HDF5, MCT, jasper, …; Intel 2021.5.1 build):
+  tarball : ${CAWO_DEPS_TARBALL}
+  target  : ${APPS_BASE}/${COAWST_DEPS_SUBDIR}/build   (LIBDEP=${LIBDEP})
 
 Online (no --offline): private cache under /scratch/\$USER/inacawo-deps-cache
   — does NOT use ${SHARED_CACHE_DIR}
@@ -104,6 +120,14 @@ while [[ $# -gt 0 ]]; do
       CACHE_DIR_SET=1
       ;;
     --prefetch-miniforge) PREFETCH_ONLY=1 ;;
+    --coawst-tarball)
+      shift
+      [[ $# -gt 0 ]] || { echo "ERROR: --coawst-tarball needs a path" >&2; exit 1; }
+      CAWO_DEPS_TARBALL="$1"
+      ;;
+    --skip-coawst-deps) COAWST_DEPS_MODE="skip" ;;
+    --only-coawst-deps) COAWST_DEPS_MODE="only" ;;
+    --force-coawst-deps) FORCE_COAWST_DEPS=1 ;;
     -h|--help) usage; exit 0 ;;
     *)
       echo "Unknown argument: $1" >&2
@@ -141,14 +165,18 @@ T_MINIFORGE=0
 T_ENV=0
 MINIFORGE_ACTION="skipped"
 ENV_ACTION="skipped"
+T_COAWST_DEPS=0
+COAWST_DEPS_ACTION="skipped"
 
-if [[ ! -f "${YML}" ]]; then
-  echo "ERROR: missing ${YML}" >&2
-  exit 1
-fi
-if [[ ! -d "${LO}/lo_tools" ]]; then
-  echo "ERROR: missing ${LO}/lo_tools (needed for editable install)" >&2
-  exit 1
+if [[ "${COAWST_DEPS_MODE}" != "only" ]]; then
+  if [[ ! -f "${YML}" ]]; then
+    echo "ERROR: missing ${YML}" >&2
+    exit 1
+  fi
+  if [[ ! -d "${LO}/lo_tools" ]]; then
+    echo "ERROR: missing ${LO}/lo_tools (needed for editable install)" >&2
+    exit 1
+  fi
 fi
 
 ensure_lo_dirs() {
@@ -197,6 +225,109 @@ ensure_lo_dirs() {
   else
     echo "      (skip LO_user — clone inacawo-iht first; expected at ${LO_USER})"
   fi
+}
+
+# Approx. disk usage of the extracted cawo_depends tree (KiB; ~36 GiB, mostly
+# netcdf-c test outputs under src/), used for a warning only.
+COAWST_DEPS_NEED_KB="${COAWST_DEPS_NEED_KB:-37500000}"
+
+install_coawst_deps() {
+  local root="${APPS_BASE}/${COAWST_DEPS_SUBDIR}"
+  local build="${root}/build"
+  local marker="${root}/.inacawo_installed"
+  local tarball="${CAWO_DEPS_TARBALL}"
+  local tar_dir tar_name sums sha="unverified" avail_kb old_prefix old_root old_re lib t0 t1
+  local -a files
+
+  echo "==> COAWST model deps (NetCDF, HDF5, MCT, …) → ${APPS_BASE}"
+  if [[ -f "${build}/lib/libnetcdff.so" && "${FORCE_COAWST_DEPS}" -eq 0 ]]; then
+    echo "    already installed: ${build}"
+    [[ -f "${marker}" ]] && sed 's/^/      /' "${marker}"
+    echo "    (use --force-coawst-deps to re-extract)"
+    COAWST_DEPS_ACTION="existing"
+    return 0
+  fi
+
+  if [[ ! -r "${tarball}" ]]; then
+    echo "ERROR: COAWST deps tarball missing or unreadable: ${tarball}" >&2
+    echo "       Override with --coawst-tarball PATH (or CAWO_DEPS_TARBALL=...)," >&2
+    echo "       or ask the maintainer to: chmod -R a+rX $(dirname "${tarball}")" >&2
+    exit 1
+  fi
+
+  t0="$(now_s)"
+  tar_dir="$(cd "$(dirname "${tarball}")" && pwd)"
+  tar_name="$(basename "${tarball}")"
+  sums="${tar_dir}/SHA256SUMS"
+  if [[ -r "${sums}" ]] && grep -qE "[[:space:]]\*?${tar_name}\$" "${sums}"; then
+    echo "    verifying sha256 (${sums})"
+    if ! (cd "${tar_dir}" && grep -E "[[:space:]]\*?${tar_name}\$" SHA256SUMS | sha256sum -c --status); then
+      echo "ERROR: sha256 mismatch for ${tarball}" >&2
+      exit 1
+    fi
+    sha="$(grep -E "[[:space:]]\*?${tar_name}\$" "${sums}" | awk '{print $1}')"
+  else
+    echo "    (no SHA256SUMS entry next to tarball — skipping checksum)"
+  fi
+
+  mkdir -p "${APPS_BASE}"
+  avail_kb="$(df -Pk "${APPS_BASE}" | awk 'NR==2 {print $4}')"
+  if [[ -n "${avail_kb}" && "${avail_kb}" -lt "${COAWST_DEPS_NEED_KB}" ]]; then
+    echo "    WARNING: only $((avail_kb / 1024)) MiB free in ${APPS_BASE};" \
+         "extraction needs ~$((COAWST_DEPS_NEED_KB / 1024)) MiB" >&2
+  fi
+
+  if [[ -e "${root}" ]]; then
+    echo "    removing existing ${root} (--force-coawst-deps)"
+    rm -rf "${root}"
+  fi
+  echo "    extracting ${tarball}"
+  tar -xzf "${tarball}" -C "${APPS_BASE}" --no-same-owner
+
+  if [[ ! -f "${build}/bin/nc-config" ]]; then
+    echo "ERROR: unexpected tarball layout (missing ${build}/bin/nc-config)" >&2
+    exit 1
+  fi
+
+  # Prebuilt tree carries its original build root in nc-config/nf-config/*.la/*.pc/*.settings
+  old_prefix="$(sed -n 's/^prefix=//p' "${build}/bin/nc-config" | head -n 1)"
+  old_root="${old_prefix%/build}"
+  if [[ -n "${old_prefix}" && "${old_root}" != "${root}" ]]; then
+    echo "    rewriting prefix ${old_root} → ${root}"
+    old_re="$(printf '%s' "${old_root}" | sed 's/[][\.*^$|]/\\&/g')"
+    mapfile -d '' files < <(grep -rIlZ -F "${old_root}" "${build}" || true)
+    if [[ ${#files[@]} -gt 0 ]]; then
+      sed -i "s|${old_re}|${root}|g" "${files[@]}"
+    fi
+    echo "      ${#files[@]} files updated"
+  fi
+
+  for lib in libnetcdf.so libnetcdff.so libhdf5.so libhdf5_fortran.so libmct.a libmpeu.a; do
+    if [[ ! -e "${build}/lib/${lib}" ]]; then
+      echo "ERROR: missing ${build}/lib/${lib} after extraction" >&2
+      exit 1
+    fi
+  done
+  if [[ "$("${build}/bin/nf-config" --prefix)" != "${build}" ]]; then
+    echo "ERROR: nf-config --prefix does not point to ${build}" >&2
+    exit 1
+  fi
+  if [[ "$("${build}/bin/nc-config" --libdir)" != "${build}/lib" ]]; then
+    echo "ERROR: nc-config --libdir does not point to ${build}/lib" >&2
+    exit 1
+  fi
+
+  {
+    echo "tarball: ${tarball}"
+    echo "sha256: ${sha}"
+    echo "installed: $(date -Iseconds) by ${USER}"
+  } > "${marker}"
+
+  t1="$(now_s)"
+  T_COAWST_DEPS="$((t1 - t0))"
+  COAWST_DEPS_ACTION="installed"
+  echo "==> COAWST model deps installed ($(fmt_elapsed "${T_COAWST_DEPS}"))"
+  echo "    LIBDEP=${build}/lib"
 }
 
 detect_installer() {
@@ -290,7 +421,23 @@ else
   echo "    mode: ONLINE (private cache; shared ${SHARED_CACHE_DIR} not used for pkgs)"
 fi
 
+if [[ "${COAWST_DEPS_MODE}" == "only" ]]; then
+  install_coawst_deps
+  echo
+  echo "==> Done (COAWST model deps only)."
+  echo "      COAWST deps: ${COAWST_DEPS_ACTION}  $(fmt_elapsed "${T_COAWST_DEPS}")"
+  echo "      total      : $(fmt_elapsed "$(( $(now_s) - T_START ))")"
+  echo "    APPS_BASE=${APPS_BASE}"
+  echo "    LIBDEP=${APPS_BASE}/${COAWST_DEPS_SUBDIR}/build/lib"
+  echo "    COAWST_ENV=${COAWST_ENV}"
+  exit 0
+fi
+
 ensure_lo_dirs
+
+if [[ "${COAWST_DEPS_MODE}" == "install" ]]; then
+  install_coawst_deps
+fi
 
 if [[ ! -x "${CONDA_PREFIX_DIR}/bin/conda" ]]; then
   install_miniforge
@@ -525,9 +672,13 @@ T_TOTAL="$(( $(now_s) - T_START ))"
 echo
 echo "==> Done."
 echo "    timing:"
+echo "      COAWST deps: ${COAWST_DEPS_ACTION}  $(fmt_elapsed "${T_COAWST_DEPS}")"
 echo "      Miniforge : ${MINIFORGE_ACTION}  $(fmt_elapsed "${T_MINIFORGE}")"
 echo "      hindcast  : ${ENV_ACTION}  $(fmt_elapsed "${T_ENV}")"
 echo "      total     : $(fmt_elapsed "${T_TOTAL}")"
+echo "    APPS_BASE=${APPS_BASE}"
+echo "    LIBDEP=${LIBDEP}"
+echo "    COAWST_ENV=${COAWST_ENV}"
 echo "    CONDA_BASE=${CONDA_BASE}"
 echo "    HINDCAST_ENV_PREFIX=${ENV_PREFIX}"
 echo "    HINDCAST_SHARED_ENV=${DEFAULT_SHARED_ENV}"

@@ -6,11 +6,11 @@
 #   source "${COAWST_ENV}"
 #   # or: source $HOME/inacawo-deps/coawst.bash_env_intel.source_oneapi
 #
-# Relies on DEPS_BASE / LIBDEP from inacawo-deps/env when available.
+# Relies on APPS_BASE / LIBDEP from inacawo-deps/env when available
+# (default prefix: $HOME/apps/cawo_depends/intel_2021.5.1/build).
 #
 
-_DEPS_BASE="${DEPS_BASE:-${HOME}/inacawo-deps}"
-_INSTALL_PREFIX="${_DEPS_BASE}/apps/cawo_depends/intel_2021.5.1/build"
+_INSTALL_PREFIX="${APPS_BASE:-${HOME}/apps}/cawo_depends/intel_2021.5.1/build"
 # LIBDEP is .../build/lib — derive prefix if already set
 if [[ -n "${LIBDEP:-}" ]]; then
   _INSTALL_PREFIX="$(cd "${LIBDEP}/.." && pwd)"

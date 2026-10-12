@@ -60,6 +60,10 @@ export CAWO_INPUT="${CAWO_HINDCAST_BASE}/cawo_input"
 export LO_DATA="${CAWO_INPUT}/LO_data"
 export LO_OUTPUT="${CAWO_INPUT}/LO_output"
 export LO_ROMS="${CAWO_INPUT}/LO_roms"
+# Parker LO_roms_source_alt (edited varinfo.yaml used by zrfun.get_varinfo).
+# Shared site copy; override LO_ROMS_SOURCE_ALT / LO_ROMS_VARINFO if needed.
+export LO_ROMS_SOURCE_ALT="${LO_ROMS_SOURCE_ALT:-/scratch/cawohdcst_ft/home/cawohdcst/LO_roms_source_alt}"
+export LO_ROMS_VARINFO="${LO_ROMS_VARINFO:-${LO_ROMS_SOURCE_ALT}/varinfo/varinfo.yaml}"
 #
 # ----------------
 # Compiled model deps (NetCDF, HDF5, MCT, …) under $HOME/apps, extracted by

@@ -1,72 +1,111 @@
 # inacawo-deps
 
-Pinned dependencies for the InaCAWO hindcast workflow.
+Pinned dependencies for the InaCAWO hindcast workflow (IHT / in-house training):
+
+- **COAWST model deps** — prebuilt NetCDF, HDF5, MCT, … (Intel oneAPI 2021.5.1) → `$HOME/apps`
+- **Intel/COAWST toolchain** — `coawst.bash_env_intel.source_oneapi` (`COAWST_ENV`)
+- **Python** — Miniforge + the `hindcast` conda env (`hindcast.yml`)
+- **LiveOcean** — `LO/` code (editable `lo_tools`)
+- **Path SST** — `env`, sourced by the workflow repo
+
+Related repos (all cloned under `$HOME`):
+
+| Directory | Repo | Content |
+|---|---|---|
+| `~/inacawo-deps` (+ `~/apps`) | [devmetmar/inacawo-deps](https://github.com/devmetmar/inacawo-deps) | dependencies (this repo) |
+| `~/inacawo-src` | [devmetmar/inacawo-src](https://github.com/devmetmar/inacawo-src) | InaCAWO / COAWST model source |
+| `~/inacawo-iht` | [devmetmar/inacawo-iht](https://github.com/devmetmar/inacawo-iht) | hindcast working directory |
+
+## Quick start (participants)
+
+```bash
+cd $HOME
+git clone https://github.com/devmetmar/inacawo-deps.git
+git clone https://github.com/devmetmar/inacawo-iht.git    # optional now; enables LO_user setup
+
+cd $HOME/inacawo-deps
+bash install_hindcast_env.bash             # online
+# or, on a flaky network:
+bash install_hindcast_env.bash --offline   # uses the shared env on scratch
+
+source $HOME/inacawo-iht/setup_env.bash    # env vars + activate hindcast
+```
+
+Prerequisites: Linux x86_64 with `/scratch`, Intel oneAPI at
+`/opt/software/intel/oneapi` (used by `COAWST_ENV`), `curl` for the first
+Miniforge download (unless cached), and **~37 GiB free under `$HOME`** for the
+COAWST model deps.
 
 ## Layout
 
 ```
-$HOME/inacawo-deps/
-  env                          # path SST (LO, conda, CAWO_HINDCAST_BASE, …)
+$HOME/inacawo-deps/                    # this repo (DEPS_BASE)
+  env                                  # path SST (LO, conda, APPS_BASE, LIBDEP, …)
   coawst.bash_env_intel.source_oneapi  # Intel/COAWST toolchain (COAWST_ENV)
-  install_hindcast_env.bash   # wrapper: dirs + COAWST deps + Miniforge + hindcast env
-  hindcast.yml
-  LO/                         # LiveOcean code (pip editable lo_tools)
-  miniforge3/                 # local Miniforge (gitignored; created by wrapper)
+  install_hindcast_env.bash            # wrapper: dirs + COAWST deps + Miniforge + hindcast env
+  hindcast.yml                         # hindcast conda env spec
+  LO/                                  # LiveOcean code (pip editable lo_tools)
+  miniforge3/                          # local Miniforge (gitignored; created by wrapper)
+  hindcast_env.prefix                  # active hindcast env prefix (gitignored; written by wrapper)
 
-$HOME/apps/                   # APPS_BASE (outside the repo; created by wrapper)
+$HOME/apps/                            # APPS_BASE (outside the repo; created by wrapper)
   cawo_depends/intel_2021.5.1/
-    build/{bin,include,lib}   # NetCDF-C/F, HDF5, MCT, jasper, … → LIBDEP=build/lib
-    src/                      # sources + build scripts of the deps
-    .inacawo_installed        # marker: tarball, sha256, install date
+    build/{bin,include,lib}            # NetCDF-C/F, HDF5, MCT, jasper, … → LIBDEP=build/lib
+    src/                               # sources + build scripts of the deps
+    .inacawo_installed                 # marker: tarball, sha256, install date
 
 $HOME/inacawo-iht/preprocess/
-  LO_user/                    # LO user config + forcing drivers
+  LO_user/                             # LO user config + forcing drivers
   get_era5/ get_glorys/ get_roms_icbc/ get_swan_bry/ wps_run/
 
-/scratch/$USER/inacawo-iht/          # CAWO_HINDCAST_BASE
-  cawo_input/                   # CAWO_INPUT
+/scratch/$USER/inacawo-iht/            # CAWO_HINDCAST_BASE
+  cawo_input/                          # CAWO_INPUT
     LO_data/ LO_output/ LO_roms/
     roms_forcing/ era5/ mercator/ wps_run/ swan_bcs/ …
   cawo_hindcast_run/ cawo_output/ cawo_post/
 ```
 
-## One-shot install (recommended)
+## What the installer does
 
-On a new machine, after cloning this repo:
+`bash install_hindcast_env.bash`:
 
-```bash
-cd $HOME/inacawo-deps
-bash install_hindcast_env.bash
-```
+1. Creates the per-user dirs under `/scratch/$USER/inacawo-iht/cawo_input/`
+   (`LO_data`, `LO_data/grids`, `LO_output`, `LO_roms`, `roms_forcing`), plus
+   `LO_user` if `inacawo-iht` is already cloned.
+2. Extracts the **COAWST model deps** into `$HOME/apps/cawo_depends/intel_2021.5.1`
+   (skipped if already present; see below).
+3. Installs **Miniforge3** into `$HOME/inacawo-deps/miniforge3` if missing.
+4. Creates (or updates) the **`hindcast`** env from `hindcast.yml` (includes
+   editable `./LO/lo_tools`), or points at the shared env with `--offline`.
+5. Prints elapsed time for **COAWST deps**, **Miniforge**, **hindcast env**,
+   and **total**, plus the resolved paths.
 
-The wrapper will:
+The `hindcast` env is always created at **`$CONDA_BASE/envs/hindcast`**
+(not `~/envs`), even if `~/.condarc` sets a different `envs_dirs`.
 
-1. Ensure user-relative LO dirs under `/scratch/$USER/inacawo-iht/cawo_input/` (`LO_data`, `LO_data/grids`, `LO_output`, `LO_roms`) and `LO_user` if `inacawo-iht` is already cloned (paths from `env`)
-2. Extract the compiled **COAWST model deps** into `$HOME/apps/cawo_depends/intel_2021.5.1` (see below)
-3. Install **Miniforge3** into `$HOME/inacawo-deps/miniforge3` if `conda` is not already there
-4. Create (or update) the **`hindcast`** env from `hindcast.yml` (includes editable `./LO/lo_tools`)
-
-Shared with iht: `CAWO_HINDCAST_BASE`, `CAWO_INPUT`, `LO` / `LO_USER` / `LO_DATA` / `LO_OUTPUT` / `LO_ROMS`, `CONDA_BASE`, `CONDA_ENVS_DIRS` / `HINDCAST_ENV_PREFIX`, `APPS_BASE`, `LIBDEP`, `COAWST_ENV` (defined here only — `inacawo-iht/env` sources this file and must not redefine them).
-
-The `hindcast` env is always created at **`$CONDA_BASE/envs/hindcast`** (not `~/envs`), even if `~/.condarc` sets a different `envs_dirs`.
-
-Options:
+### Options
 
 ```bash
-bash install_hindcast_env.bash --force-recreate      # delete + recreate hindcast
-bash install_hindcast_env.bash --prefetch-miniforge  # download installer into cache only
-bash install_hindcast_env.bash --offline             # no network; use local cache
-bash install_hindcast_env.bash --cache-dir /path     # override cache root
-bash install_hindcast_env.bash --only-coawst-deps    # model libs only (no conda)
-bash install_hindcast_env.bash --skip-coawst-deps    # conda / LO only
-bash install_hindcast_env.bash --force-coawst-deps   # remove + re-extract model libs
-bash install_hindcast_env.bash --coawst-tarball PATH # override deps tarball
+# COAWST model deps
+bash install_hindcast_env.bash --only-coawst-deps     # model libs only (no conda)
+bash install_hindcast_env.bash --skip-coawst-deps     # conda / LO only
+bash install_hindcast_env.bash --force-coawst-deps    # remove + re-extract model libs
+bash install_hindcast_env.bash --coawst-tarball PATH  # override deps tarball
+
+# hindcast conda env
+bash install_hindcast_env.bash --force-recreate       # delete + recreate private env
+bash install_hindcast_env.bash --offline              # no downloads; use shared scratch env
+bash install_hindcast_env.bash --offline --from-clone PATH  # private copy of an env (slow)
+bash install_hindcast_env.bash --cache-dir DIR        # override cache root
+bash install_hindcast_env.bash --prefetch-miniforge   # download installer into cache, exit
+bash install_hindcast_env.bash --seed-pkgs-from DIR   # maintainer: seed conda pkgs cache
+bash install_hindcast_env.bash --help
 ```
 
-### COAWST model deps (NetCDF, HDF5, MCT, …)
+## COAWST model deps (NetCDF, HDF5, MCT, …)
 
-Prebuilt with Intel oneAPI 2021.5.1 (NetCDF-C 4.6.1, NetCDF-Fortran 4.4.5,
-HDF5 1.10.6, MCT 2.6.0, jasper, libpng, curl, szip, zlib, udunits, expat).
+Prebuilt with Intel oneAPI 2021.5.1: NetCDF-C 4.6.1, NetCDF-Fortran 4.4.5,
+HDF5 1.10.6, MCT 2.6.0, jasper, libpng, curl, szip, zlib, udunits, expat.
 The wrapper extracts the shared tarball into `$APPS_BASE` (default `$HOME/apps`):
 
 ```
@@ -81,10 +120,11 @@ The wrapper extracts the shared tarball into `$APPS_BASE` (default `$HOME/apps`)
   `*.pc`, `*.settings` to the new location, then checks `nf-config --prefix`
   / `nc-config --libdir` and the key libraries.
 - Needs **~36 GiB** free in `$APPS_BASE` (almost all of it is netcdf-c test
-  output under `src/`; `build/` itself is ~48 MB) and takes ~5 min.
+  output under `src/`; `build/` itself is ~48 MB) and takes ~4–5 min.
 
-Use them via `COAWST_ENV` (sets compilers, `NETCDF`, `NF_CONFIG`, `MCT_*`,
-`LD_LIBRARY_PATH`, …):
+Use them via `COAWST_ENV` (sets Intel compilers, `NETCDF`, `NC_CONFIG`,
+`NF_CONFIG`, `HDF5`, `MCT_*`, `JASPER*`, `LD_LIBRARY_PATH`, …). Source it only
+in shells/jobs that build or run COAWST/WPS — it runs `module purge`:
 
 ```bash
 source $HOME/inacawo-deps/env
@@ -92,7 +132,59 @@ source "${COAWST_ENV}"
 nf-config --flibs
 ```
 
-Maintainer: refresh the shared tarball (run as `cawohdcst_ft2`):
+## hindcast conda env: online vs offline
+
+| Mode | Env location | Package cache |
+|---|---|---|
+| online (default) | private `$HOME/inacawo-deps/miniforge3/envs/hindcast` | private `/scratch/$USER/inacawo-deps-cache` |
+| `--offline` | shared read-only `/scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast` | none (no downloads, no copy) |
+| `--offline --from-clone PATH` | private copy of `PATH` (rsync + prefix rewrite) | — |
+
+Shared cache (maintained by `cawohdcst_ft2`, `chmod -R a+rX`):
+
+```
+/scratch/cawohdcst_ft2/inacawo-deps-cache/
+  miniforge/Miniforge3-Linux-x86_64.sh   # reused by online installs if present
+  conda-pkgs/
+  envs/hindcast/                         # SHARED read-only hindcast env (--offline)
+```
+
+With `--offline`, the wrapper writes the shared prefix into `hindcast_env.prefix`;
+`env` / `setup_env.bash` then activate it. Each user's own
+`$HOME/inacawo-deps/LO/lo_tools` is still used via `$LO` (the shared env is
+read-only, so nothing is pip-installed into it).
+
+Other users **cannot** read `/home/cawohdcst_ft2/...` (mode 700). Anything
+meant to be shared (installers, tarballs, reference envs) must live on
+`/scratch/cawohdcst_ft2/...` with `chmod -R a+rX`.
+
+## Environment variables
+
+Defined in `env` only — `inacawo-iht/env` sources this file and must not
+redefine them:
+
+| Variable | Default |
+|---|---|
+| `DEPS_BASE` | `$HOME/inacawo-deps` |
+| `CONDA_BASE`, `CONDA_ENVS_DIRS` | `$DEPS_BASE/miniforge3`, `$CONDA_BASE/envs` (fallback `$HOME/opt/miniforge3`) |
+| `HINDCAST_ENV_PREFIX` | from `hindcast_env.prefix` → local env → shared env |
+| `HINDCAST_SHARED_ENV` | `/scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast` |
+| `CAWO_HINDCAST_BASE`, `CAWO_INPUT` | `/scratch/$USER/inacawo-iht`, `$CAWO_HINDCAST_BASE/cawo_input` |
+| `LO`, `LO_USER` | `$DEPS_BASE/LO`, `$HOME/inacawo-iht/preprocess/LO_user` |
+| `LO_DATA`, `LO_OUTPUT`, `LO_ROMS` | `$CAWO_INPUT/LO_data`, `…/LO_output`, `…/LO_roms` |
+| `LO_ROMS_SOURCE_ALT`, `LO_ROMS_VARINFO` | `/scratch/cawohdcst_ft/home/cawohdcst/LO_roms_source_alt`, `…/varinfo/varinfo.yaml` |
+| `APPS_BASE` | `$HOME/apps` |
+| `CAWO_DEPS_TARBALL_DIR`, `CAWO_DEPS_TARBALL` | `/scratch/cawohdcst_ft2/inacawo-iht/deps_tarballs`, `…/apps.cawo_depends.mdclogin0.tar.gz` |
+| `LIBDEP` | `$APPS_BASE/cawo_depends/intel_2021.5.1/build/lib` |
+| `COAWST_ENV` | `$DEPS_BASE/coawst.bash_env_intel.source_oneapi` |
+
+Variables using `${VAR:-default}` (e.g. `APPS_BASE`, `CONDA_BASE`,
+`LO_ROMS_SOURCE_ALT`) can be overridden by exporting them before sourcing `env`
+or running the wrapper.
+
+## Maintainer tasks (run as `cawohdcst_ft2`)
+
+Refresh the shared COAWST deps tarball:
 
 ```bash
 D=/scratch/cawohdcst_ft2/inacawo-iht/deps_tarballs
@@ -101,58 +193,23 @@ cp -p $HOME/apps/tars/apps.cawo_depends.mdclogin0.tar.gz $D/
 chmod 755 $D && chmod 644 $D/*
 ```
 
-### Timing
-
-The wrapper prints elapsed time for **COAWST deps**, **Miniforge**, **hindcast env**, and **total**.
-
-### Local / offline cache (flaky network)
-
-Default cache root (shared on **scratch**, not `$HOME`):  
-**`/scratch/cawohdcst_ft2/inacawo-deps-cache`**
-
-```
-$CACHE_DIR/
-  miniforge/Miniforge3-Linux-x86_64.sh
-  conda-pkgs/
-  envs/hindcast/          # SHARED read-only hindcast env (--offline uses this)
-```
-
-Other users **cannot** read `$HOME/cawohdcst_ft2/...`. Always put shareable
-installers / reference envs under this scratch cache and `chmod -R a+rX`.
-
-**`--offline`** (recommended when network is flaky): no package downloads and
-**no 4G copy**. Points `HINDCAST_ENV_PREFIX` at the shared scratch env and
-writes `hindcast_env.prefix`. Each user’s own `$HOME/inacawo-deps/LO/lo_tools`
-is used via `$LO` (shared env is read-only).
+Refresh the shared hindcast env after updating `hindcast.yml`
+(`SRC` = an up-to-date private hindcast env):
 
 ```bash
-# Other users (no permission on ft2 $HOME):
-bash install_hindcast_env.bash --offline
-# → uses /scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast
-
-# Optional private copy (slow; only if you need a writable env):
-bash install_hindcast_env.bash --offline --from-clone \
-  /scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast
-```
-
-Maintainer: refresh the shared reference env after updating hindcast:
-
-```bash
+SRC=$HOME/opt/miniforge3/envs/hindcast
 rm -rf /scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast
-conda create -p /scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast \
-  --clone $HOME/opt/miniforge3/envs/hindcast -y
+conda create -p /scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast --clone "$SRC" -y
 chmod -R a+rX /scratch/cawohdcst_ft2/inacawo-deps-cache
 ```
 
-Requires `curl` for the first Miniforge download (unless the installer is already cached). `miniforge3/` under the repo is gitignored (do not commit it).
-
-Then from the workflow repo:
+Prefetch the Miniforge installer into the shared cache:
 
 ```bash
-source $HOME/inacawo-iht/setup_env.bash   # uses CONDA_BASE=inacawo-deps/miniforge3 when present
+bash install_hindcast_env.bash --prefetch-miniforge
 ```
 
-## Manual install (alternative)
+## Manual conda install (alternative)
 
 If you already manage conda yourself:
 
@@ -163,6 +220,6 @@ mamba env create -f hindcast.yml
 conda activate hindcast
 ```
 
-Must run from this directory so `./LO/lo_tools` resolves.
-
-Override `CONDA_BASE` before sourcing if your prefix is not under `inacawo-deps/miniforge3` or `$HOME/opt/miniforge3` (set in `inacawo-deps/env`).
+Must run from this directory so `./LO/lo_tools` resolves. Override
+`CONDA_BASE` before sourcing `env` if your prefix is not under
+`inacawo-deps/miniforge3` or `$HOME/opt/miniforge3`.

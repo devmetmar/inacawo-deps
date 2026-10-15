@@ -45,6 +45,9 @@ dependencies:
   - esmf
   - esmpy
   - xesmf
+  # ROMS 3-D postprocess (post_roms3d_xesmf → z-levels)
+  - xgcm
+  - xroms
   # Data download (copernicusmarine conda; cdsapi via pip)
   - copernicusmarine
   # Utilities

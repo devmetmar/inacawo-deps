@@ -26,22 +26,35 @@ export HINDCAST_ENV_NAME="${HINDCAST_ENV_NAME:-hindcast}"
 export CONDA_ENVS_DIRS="${CONDA_BASE}/envs"
 # Shared read-only hindcast env on scratch (offline / multi-user). Not under $HOME.
 export HINDCAST_SHARED_ENV="${HINDCAST_SHARED_ENV:-/scratch/cawohdcst_ft2/inacawo-deps-cache/envs/hindcast}"
-# Resolve active prefix: explicit > installer pointer file > local private > shared
+# Resolve active prefix: first *existing* conda env among
+#   explicit HINDCAST_ENV_PREFIX → hindcast_env.prefix → local private → shared
+# Stale exports / prefix files that point at a missing local env must not win
+# over the shared offline env (common after install --offline in the same shell).
 _HINDCAST_PREFIX_FILE="${DEPS_BASE}/hindcast_env.prefix"
 _HINDCAST_LOCAL="${CONDA_ENVS_DIRS}/${HINDCAST_ENV_NAME}"
-if [[ -n "${HINDCAST_ENV_PREFIX:-}" ]]; then
-  : # caller already set
-elif [[ -f "${_HINDCAST_PREFIX_FILE}" ]]; then
-  # shellcheck disable=SC2155
-  export HINDCAST_ENV_PREFIX="$(head -n 1 "${_HINDCAST_PREFIX_FILE}" | tr -d '\r')"
-elif [[ -d "${_HINDCAST_LOCAL}/conda-meta" ]]; then
-  export HINDCAST_ENV_PREFIX="${_HINDCAST_LOCAL}"
-elif [[ -d "${HINDCAST_SHARED_ENV}/conda-meta" ]]; then
-  export HINDCAST_ENV_PREFIX="${HINDCAST_SHARED_ENV}"
-else
-  export HINDCAST_ENV_PREFIX="${_HINDCAST_LOCAL}"
+_HINDCAST_FILE_PREFIX=""
+if [[ -f "${_HINDCAST_PREFIX_FILE}" ]]; then
+  _HINDCAST_FILE_PREFIX="$(head -n 1 "${_HINDCAST_PREFIX_FILE}" | tr -d '\r')"
 fi
-unset _HINDCAST_PREFIX_FILE _HINDCAST_LOCAL
+_HINDCAST_PICKED=""
+for _cand in \
+  "${HINDCAST_ENV_PREFIX:-}" \
+  "${_HINDCAST_FILE_PREFIX}" \
+  "${_HINDCAST_LOCAL}" \
+  "${HINDCAST_SHARED_ENV}"
+do
+  if [[ -n "${_cand}" && -d "${_cand}/conda-meta" ]]; then
+    _HINDCAST_PICKED="${_cand}"
+    break
+  fi
+done
+if [[ -n "${_HINDCAST_PICKED}" ]]; then
+  export HINDCAST_ENV_PREFIX="${_HINDCAST_PICKED}"
+else
+  # Prefer shared in the error path so setup_env hints at --offline correctly.
+  export HINDCAST_ENV_PREFIX="${HINDCAST_SHARED_ENV}"
+fi
+unset _HINDCAST_PREFIX_FILE _HINDCAST_LOCAL _HINDCAST_FILE_PREFIX _HINDCAST_PICKED _cand
 #
 # -----------------
 # Shared hindcast base (same value for deps install + iht workflow)

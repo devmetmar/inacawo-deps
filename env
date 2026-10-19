@@ -56,7 +56,10 @@ export LO="${DEPS_BASE}/LO"
 # Per-user lo_tools package dir (shared env editable finder reads $LO)
 export LO_TOOLS_PKG="${LO_TOOLS_PKG:-${LO}/lo_tools/lo_tools}"
 export LO_USER="${HOME}/inacawo-iht/preprocess/LO_user"
-export CAWO_INPUT="${CAWO_HINDCAST_BASE}/cawo_input"
+# Allow override for maintainer staging into the shared forcing tree, e.g.
+#   export CAWO_INPUT=/scratch/cawohdcst_ft2/data
+# before sourcing setup_env / run_preprocess.
+export CAWO_INPUT="${CAWO_INPUT:-${CAWO_HINDCAST_BASE}/cawo_input}"
 export LO_DATA="${CAWO_INPUT}/LO_data"
 export LO_OUTPUT="${CAWO_INPUT}/LO_output"
 export LO_ROMS="${CAWO_INPUT}/LO_roms"

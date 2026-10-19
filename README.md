@@ -12,23 +12,35 @@ Related repos (all cloned under `$HOME`):
 
 | Directory | Repo | Content |
 |---|---|---|
-| `~/inacawo-deps` (+ `~/apps`) | [devmetmar/inacawo-deps](https://github.com/devmetmar/inacawo-deps) | dependencies (this repo) |
-| `~/inacawo-src` | [devmetmar/inacawo-src](https://github.com/devmetmar/inacawo-src) | InaCAWO / COAWST model source |
-| `~/inacawo-iht` | [devmetmar/inacawo-iht](https://github.com/devmetmar/inacawo-iht) | hindcast working directory |
+| `~/inacawo-deps` (+ `~/apps`) | [devmetmar/inacawo-deps](https://github.com/devmetmar/inacawo-deps) | libraries, `hindcast` conda env, LiveOcean, `COAWST_ENV` (this repo) |
+| `~/inacawo-src` | [devmetmar/inacawo-src](https://github.com/devmetmar/inacawo-src) | build scripts and headers only; you compile `binaries/{ramp_tides,no_ramp_tides}/coawstM` (source tarball is not in git) |
+| `~/inacawo-iht` | [devmetmar/inacawo-iht](https://github.com/devmetmar/inacawo-iht) | hindcast working directory (preprocess / run / postprocess) |
 
 ## Quick start (participants)
 
+Same order in all three READMEs. This repo is step 2.
+
 ```bash
+# 1) Clone all three under $HOME
 cd $HOME
 git clone https://github.com/devmetmar/inacawo-deps.git
-git clone https://github.com/devmetmar/inacawo-iht.git    # optional now; enables LO_user setup
+git clone https://github.com/devmetmar/inacawo-src.git
+git clone https://github.com/devmetmar/inacawo-iht.git
 
+# 2) Model libraries (~/apps), Miniforge, and the hindcast conda env
 cd $HOME/inacawo-deps
 bash install_hindcast_env.bash             # online
 # or, on a flaky network:
 bash install_hindcast_env.bash --offline   # uses the shared env on scratch
 
-source $HOME/inacawo-iht/setup_env.bash    # env vars + activate hindcast
+# 3) Compile both coawstM (Intel via COAWST_ENV, not conda).
+#    IHT accounts: --partition DEV1. Omit it only if your account is allowed
+#    on HDCAST; otherwise the wrapper selects DEV1 itself.
+cd $HOME/inacawo-src
+bash build_coawst.bash --sbatch --partition DEV1
+
+# 4) Daily workflow (paths + conda activate hindcast)
+source $HOME/inacawo-iht/setup_env.bash
 ```
 
 Prerequisites: Linux x86_64 with `/scratch`, Intel oneAPI at

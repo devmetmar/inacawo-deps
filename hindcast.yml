@@ -64,6 +64,8 @@ dependencies:
   - lxml
   - sqlalchemy
   - ipykernel
+  - jupyterlab
+  - notebook
   - git
   - pip
   - ffmpeg

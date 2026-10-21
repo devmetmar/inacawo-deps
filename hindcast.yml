@@ -46,8 +46,8 @@ dependencies:
   - esmpy
   - xesmf
   # ROMS 3-D postprocess (post_roms3d_xesmf → z-levels)
-  - xgcm
-  - xroms
+  - xgcm=0.8.1
+  - xroms=0.6.2
   # Data download (copernicusmarine conda; cdsapi via pip)
   - copernicusmarine
   # Utilities
